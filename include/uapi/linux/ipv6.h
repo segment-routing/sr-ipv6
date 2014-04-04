@@ -51,6 +51,22 @@ struct ipv6_rt_hdr {
 	 */
 };
 
+/*
+ * SRH
+ */
+struct ipv6_sr_hdr {
+    __u8        nexthdr;
+    __u8        hdrlen;             // 8-octet units
+    __u8        type;
+    __u8        next_segment;
+    __u8        last_segment;
+    __u16       flags:4;
+    __u16       hmac_key_id:8;        // currently set to 0 as unused
+    __u16       policy_flags:12;    // currently set to 0 as unused
+
+    struct in6_addr segments[0];
+} __attribute__((packed));
+
 
 struct ipv6_opt_hdr {
 	__u8 		nexthdr;

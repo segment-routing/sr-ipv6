@@ -43,6 +43,8 @@
 #define NEXTHDR_DEST		60	/* Destination options header. */
 #define NEXTHDR_MOBILITY	135	/* Mobility header. */
 
+#define NEXTHDR_SRH         253 /* SR header, set to experimental value. Change wrt IANA assignment */
+
 #define NEXTHDR_MAX		255
 
 

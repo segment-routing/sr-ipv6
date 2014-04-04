@@ -291,6 +291,106 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 	return -1;
 }
 
+/*
+ * SRH-IPV6 header
+ */
+
+/* called with rcu_read_lock() */
+static int ipv6_srh_rcv(struct sk_buff *skb)
+{
+    struct inet6_skb_parm *opt = IP6CB(skb); // unused for now (useless?)
+    struct in6_addr *addr = NULL, *next_addr = NULL, *last_addr = NULL;
+    struct in6_addr daddr;
+    struct inet6_dev *idev;
+    struct ipv6_sr_hdr *hdr;
+    struct net *net = dev_net(skb->dev);
+    int i, inc = 0, cleanup = 0;
+
+    if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
+        !pskb_may_pull(skb, (skb_transport_offset(skb) +
+                ((skb_transport_header(skb)[1] + 1) << 3)))) {
+        IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
+                IPSTATS_MIB_INHDRERRORS);
+        kfree_skb(skb);
+        return -1;
+    }
+
+    hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
+
+    if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr) ||
+        skb->pkt_type != PACKET_HOST) {
+        IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
+                 IPSTATS_MIB_INADDRERRORS);
+        kfree_skb(skb);
+        return -1;
+    }
+
+looped_back:
+//    i = hdr->next_segment >> 1;
+    addr = next_addr = hdr->segments + (hdr->next_segment >> 1);
+    last_addr = hdr->segments + (hdr->last_segment >> 1);
+
+    if (hdr->next_segment != hdr->last_segment) {
+        inc = 1;
+    } else if (memcmp(ipv6_hdr(skb)->daddr.s6_addr, (*last_addr).s6_addr, 16) != 0) {
+        if (hdr->flags & 0x2)
+            cleanup = 1;
+    } else {
+        opt->lastopt = skb_network_header_len(skb);
+        skb->transport_header += (hdr->hdrlen + 1) << 3;
+        opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
+        return 1;
+    }
+
+    if (skb_cloned(skb)) {
+        if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
+            IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
+                    IPSTATS_MIB_OUTDISCARDS);
+            kfree_skb(skb);
+            return -1;
+        }
+        hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
+    }
+
+    if (inc)
+        hdr->next_segment += 2; // + 16 bytes
+
+    // TODO handle cleanup bit
+
+    if (skb->ip_summed == CHECKSUM_COMPLETE)
+        skb->ip_summed = CHECKSUM_NONE;
+
+    daddr = *addr;
+    *addr = ipv6_hdr(skb)->daddr;
+    ipv6_hdr(skb)->daddr = daddr;
+
+    skb_dst_drop(skb);
+    ip6_route_input(skb);
+    if (skb_dst(skb)->error) {
+        skb_push(skb, skb->data - skb_network_header(skb));
+        dst_input(skb);
+        return -1;
+    }
+
+    if (skb_dst(skb)->dev->flags & IFF_LOOPBACK) {
+        if (ipv6_hdr(skb)->hop_limit <= 1) {
+            IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
+                    IPSTATS_MIB_INHDRERRORS);
+            icmpv6_send(skb, ICMPV6_TIME_EXCEED, ICMPV6_EXC_HOPLIMIT,
+                    0);
+            kfree_skb(skb);
+            return -1;
+        }
+        ipv6_hdr(skb)->hop_limit--;
+        goto looped_back;
+    }
+
+    skb_push(skb, skb->data - skb_network_header(skb));
+    dst_input(skb);
+
+    return -1;
+}
+
 /********************************
   Routing header.
  ********************************/
@@ -497,6 +597,11 @@ static const struct inet6_protocol nodata_protocol = {
 	.flags		=	INET6_PROTO_NOPOLICY,
 };
 
+static const struct inet6_protocol srh_protocol = {
+    .handler    =   ipv6_srh_rcv,
+    .flags      =   INET6_PROTO_NOPOLICY,
+};
+
 int __init ipv6_exthdrs_init(void)
 {
 	int ret;
@@ -509,12 +614,18 @@ int __init ipv6_exthdrs_init(void)
 	if (ret)
 		goto out_rthdr;
 
+    ret = inet6_add_protocol(&srh_protocol, IPPROTO_SRH);
+    if (ret)
+        goto out_destopt;
+
 	ret = inet6_add_protocol(&nodata_protocol, IPPROTO_NONE);
 	if (ret)
-		goto out_destopt;
+		goto out_srh;
 
 out:
 	return ret;
+out_srh:
+    inet6_del_protocol(&srh_protocol, IPPROTO_SRH);
 out_destopt:
 	inet6_del_protocol(&destopt_protocol, IPPROTO_DSTOPTS);
 out_rthdr:
@@ -525,6 +636,7 @@ out_rthdr:
 void ipv6_exthdrs_exit(void)
 {
 	inet6_del_protocol(&nodata_protocol, IPPROTO_NONE);
+    inet6_del_protocol(&srh_protocol, IPPROTO_SRH);
 	inet6_del_protocol(&destopt_protocol, IPPROTO_DSTOPTS);
 	inet6_del_protocol(&rthdr_protocol, IPPROTO_ROUTING);
 }
