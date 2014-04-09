@@ -47,6 +47,9 @@
 #include <net/xfrm.h>
 #endif
 
+#include <crypto/hash.h>
+#include <crypto/sha.h>
+
 #include <asm/uaccess.h>
 
 /*
@@ -295,6 +298,59 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
  * SRH-IPV6 header
  */
 
+static int hmac_sha256_sr(u8 *key, u8 ksize, struct sk_buff *skb, u8 *output)
+{
+    int ret = 0;
+    struct crypto_shash *tfm;
+    struct ipv6_sr_hdr *hdr;
+
+    if (!ksize)
+        return -EINVAL;
+
+    tfm = crypto_alloc_shash("hmac(sha256)", 0, 0);
+    if (IS_ERR(tfm))
+        return PTR_ERR(tfm);
+
+    ret = crypto_shash_setkey(tfm, key, ksize);
+    if (ret) {
+        crypto_free_shash(tfm);
+        return ret;
+    }
+
+    struct {
+        struct shash_desc shash;
+        char ctx[crypto_shash_descsize(tfm)];
+    } desc;
+
+    desc.shash.tfm = tfm;
+
+    hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
+
+    // SA + last_segment + cleanup flag + hmac key id + segments
+    // XXX clean up flag is represented as a byte
+
+    unsigned int len = 16 + 1 + 1 + 1 + (hdr->last_segment+2)*8;
+    char plaintext[len];
+    char *pptr = plaintext;
+    int i;
+
+    memcpy(pptr, ipv6_hdr(skb)->saddr.s6_addr, 16);
+    pptr += 16;
+    *pptr++ = hdr->last_segment;
+    *pptr++ = hdr->flags & 0x02;
+    *pptr++ = hdr->hmac_key_id;
+
+    for (i = 0; i < hdr->last_segment + 2; i += 2) {
+        memcpy(pptr, (char *)(hdr->segments + (i >> 2)), 16);
+        pptr += 16;
+    }
+
+    ret = crypto_shash_digest(&desc.shash, plaintext, len, output);
+
+    crypto_free_shash(tfm);
+    return ret;
+}
+
 /* called with rcu_read_lock() */
 static int ipv6_srh_rcv(struct sk_buff *skb)
 {
@@ -305,6 +361,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
     struct ipv6_sr_hdr *hdr;
     struct net *net = dev_net(skb->dev);
     int i, inc = 0, cleanup = 0;
+    char hmac_key_default[] = "YELLOW SUBMARINE";
 
     if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
         !pskb_may_pull(skb, (skb_transport_offset(skb) +
@@ -323,6 +380,30 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
                  IPSTATS_MIB_INADDRERRORS);
         kfree_skb(skb);
         return -1;
+    }
+
+    /* HMAC check */
+    if (hdr->hmac_key_id != 0) {
+        // segments size = (last_segment + 2)
+        // size with segments + hmac: (last_segment + 2) + 4
+        // TODO: handle policies
+        if (hdr->hdrlen < hdr->last_segment + 2 + 4) {
+            kfree_skb(skb);
+            return -1;
+        }
+
+        u8 hmac_output[SHA256_DIGEST_SIZE];
+        if (hmac_sha256_sr(hmac_key_default, strlen(hmac_key_default), skb, hmac_output)) {
+            kfree_skb(skb);
+            return -1;
+        }
+
+        u8 *hmac_input = (u8*)(hdr->segments + ((hdr->last_segment + 2) >> 1));
+
+        if (memcmp(hmac_output, hmac_input, SHA256_DIGEST_SIZE) != 0) {
+            kfree_skb(skb);
+            return -1;
+        }
     }
 
 looped_back:
