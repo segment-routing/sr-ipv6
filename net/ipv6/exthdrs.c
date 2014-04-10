@@ -303,7 +303,7 @@ static void sr_set_flags(struct ipv6_sr_hdr *hdr, u8 flags)
     hdr->f1 = ((flags & 0x0f) << 4) | (hdr->f1 & 0x0f);
 }
 
-u8 get_flags(struct ipv6_sr_hdr *hdr)
+static u8 sr_get_flags(struct ipv6_sr_hdr *hdr)
 {
     return (hdr->f1 >> 4) & 0x0f;
 }
@@ -314,7 +314,7 @@ static void sr_set_hmac_key_id(struct ipv6_sr_hdr *hdr, u8 hmackeyid)
     hdr->f2 = (hmackeyid << 4) | (hdr->f2 & 0x0f);
 }
 
-u8 get_hmac_key_id(struct ipv6_sr_hdr *hdr)
+static u8 sr_get_hmac_key_id(struct ipv6_sr_hdr *hdr)
 {
     return (hdr->f1 << 4) | (hdr->f2 >> 4);
 }
@@ -453,7 +453,7 @@ looped_back:
     if (hdr->next_segment != hdr->last_segment) {
         inc = 1;
     } else if (memcmp(ipv6_hdr(skb)->daddr.s6_addr, (*last_addr).s6_addr, 16) != 0) {
-        if (hdr->flags & 0x2)
+        if (sr_get_flags(hdr) & 0x2)
             cleanup = 1;
     } else {
         opt->lastopt = skb_network_header_len(skb);
