@@ -60,9 +60,10 @@ struct ipv6_sr_hdr {
     __u8        type;
     __u8        next_segment;
     __u8        last_segment;
-    __u16       flags:4;
-    __u16       hmac_key_id:8;
-    __u16       policy_flags:12;    // unused
+
+    __u8        f1;     // flags + hmac_key_id(high 4)
+    __u8        f2;     // hmac_key_id(low 4) + policy_flags(high 4)
+    __u8        f3;     // policy_flags(low 8)
 
     struct in6_addr segments[0];
 } __attribute__((packed));

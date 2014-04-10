@@ -298,11 +298,44 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
  * SRH-IPV6 header
  */
 
+static void sr_set_flags(struct ipv6_sr_hdr *hdr, u8 flags)
+{
+    hdr->f1 = ((flags & 0x0f) << 4) | (hdr->f1 & 0x0f);
+}
+
+u8 get_flags(struct ipv6_sr_hdr *hdr)
+{
+    return (hdr->f1 >> 4) & 0x0f;
+}
+
+static void sr_set_hmac_key_id(struct ipv6_sr_hdr *hdr, u8 hmackeyid)
+{
+    hdr->f1 = (hdr->f1 & 0xf0) | (hmackeyid >> 4);
+    hdr->f2 = (hmackeyid << 4) | (hdr->f2 & 0x0f);
+}
+
+u8 get_hmac_key_id(struct ipv6_sr_hdr *hdr)
+{
+    return (hdr->f1 << 4) | (hdr->f2 >> 4);
+}
+
+static void sr_set_policy_flags(struct ipv6_sr_hdr *hdr, u16 pflags)
+{
+    hdr->f2 = (hdr->f2 & 0xf0) | ((pflags >> 8) & 0x0f);
+    hdr->f3 = (u8)(pflags & 0xff);
+}
+
+static u16 sr_get_policy_flags(struct ipv6_sr_hdr *hdr)
+{
+    return ((hdr->f2 & 0x0f) << 8) | hdr->f3;
+}
+
 static int hmac_sha256_sr(u8 *key, u8 ksize, struct sk_buff *skb, u8 *output)
 {
     int ret = 0;
     struct crypto_shash *tfm;
     struct ipv6_sr_hdr *hdr;
+    unsigned int plen;
 
     if (!ksize)
         return -EINVAL;
@@ -329,23 +362,23 @@ static int hmac_sha256_sr(u8 *key, u8 ksize, struct sk_buff *skb, u8 *output)
     // SA + last_segment + cleanup flag + hmac key id + segments
     // XXX clean up flag is represented as a byte
 
-    unsigned int len = 16 + 1 + 1 + 1 + (hdr->last_segment+2)*8;
-    char plaintext[len];
+    plen = 16 + 1 + 1 + 1 + (hdr->last_segment+2)*8;
+    char plaintext[plen];
     char *pptr = plaintext;
     int i;
 
     memcpy(pptr, ipv6_hdr(skb)->saddr.s6_addr, 16);
     pptr += 16;
     *pptr++ = hdr->last_segment;
-    *pptr++ = hdr->flags & 0x02;
-    *pptr++ = hdr->hmac_key_id;
+    *pptr++ = sr_get_flags(hdr) & 0x02;
+    *pptr++ = sr_get_hmac_key_id(hdr);
 
     for (i = 0; i < hdr->last_segment + 2; i += 2) {
         memcpy(pptr, (char *)(hdr->segments + (i >> 2)), 16);
         pptr += 16;
     }
 
-    ret = crypto_shash_digest(&desc.shash, plaintext, len, output);
+    ret = crypto_shash_digest(&desc.shash, plaintext, plen, output);
 
     crypto_free_shash(tfm);
     return ret;
@@ -357,11 +390,13 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
     struct inet6_skb_parm *opt = IP6CB(skb); // unused for now (useless?)
     struct in6_addr *addr = NULL, *next_addr = NULL, *last_addr = NULL;
     struct in6_addr daddr;
-    struct inet6_dev *idev;
     struct ipv6_sr_hdr *hdr;
     struct net *net = dev_net(skb->dev);
-    int i, inc = 0, cleanup = 0;
+    int inc = 0, cleanup = 0;
     char hmac_key_default[] = "YELLOW SUBMARINE";
+    u8 hmac_output[SHA256_DIGEST_SIZE];
+    u8 *hmac_input;
+    u8 hmac_key_id;
 
     if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
         !pskb_may_pull(skb, (skb_transport_offset(skb) +
@@ -383,24 +418,28 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
     }
 
     /* HMAC check */
-    if (hdr->hmac_key_id != 0) {
+    hmac_key_id = sr_get_hmac_key_id(hdr);
+    if (hmac_key_id != 0) {
         // segments size = (last_segment + 2)
         // size with segments + hmac: (last_segment + 2) + 4
         // TODO: handle policies
+        printk("SR-IPv6: hmac_key_id is %u\n", hmac_key_id);
         if (hdr->hdrlen < hdr->last_segment + 2 + 4) {
+            printk("SR-IPv6: header too short for HMAC\n");
             kfree_skb(skb);
             return -1;
         }
 
-        u8 hmac_output[SHA256_DIGEST_SIZE];
         if (hmac_sha256_sr(hmac_key_default, strlen(hmac_key_default), skb, hmac_output)) {
+            printk("SR-IPv6: hmac function call failed\n");
             kfree_skb(skb);
             return -1;
         }
 
-        u8 *hmac_input = (u8*)(hdr->segments + ((hdr->last_segment + 2) >> 1));
+        hmac_input = (u8*)(hdr->segments + ((hdr->last_segment + 2) >> 1));
 
         if (memcmp(hmac_output, hmac_input, SHA256_DIGEST_SIZE) != 0) {
+            printk("SR-IPv6: HMAC comparison failed, dropping packet\n");
             kfree_skb(skb);
             return -1;
         }
