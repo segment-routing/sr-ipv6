@@ -347,7 +347,7 @@ static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
         padlen = 0;
 
     char plaintext[len+padlen];
-    memset(plaintext, 0x80, len+padlen);
+    memset(plaintext, 0, len+padlen);
     memcpy(plaintext, message, len);
 
     pptr = plaintext+len;
@@ -355,6 +355,7 @@ static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
     if (padlen) {
         bits = cpu_to_be64(len << 3);
         memcpy(pptr + padlen - sizeof(bits), (const u8 *)&bits, sizeof(bits));
+        *pptr = 0x80;
     }
 
     sha_init(hash_out);
@@ -408,7 +409,7 @@ static int sr_hmac_sha1(u8 *key, u8 ksize, struct sk_buff *skb, u32 *output)
     *pptr++ = sr_get_hmac_key_id(hdr);
 
     for (i = 0; i < hdr->last_segment + 2; i += 2) {
-        addr = hdr->segments + (i >> 2);
+        addr = hdr->segments + (i >> 1);
         memcpy(pptr, addr->s6_addr, 16);
         pptr += 16;
     }
