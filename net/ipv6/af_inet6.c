@@ -491,7 +491,7 @@ int inet6_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 
 	case SIOCADDRT:
 	case SIOCDELRT:
-
+    case SIOCSETSG:
 		return ipv6_route_ioctl(net, cmd, (void __user *)arg);
 
 	case SIOCSIFADDR:

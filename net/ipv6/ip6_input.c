@@ -68,6 +68,10 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	u32 		pkt_len;
 	struct inet6_dev *idev;
 	struct net *net = dev_net(skb->dev);
+    struct seg6_list *segments;
+    int srhlen;
+    struct ipv6_sr_hdr *srh;
+    struct ipv6hdr *nhdr;
 
 	if (skb->pkt_type == PACKET_OTHERHOST) {
 		kfree_skb(skb);
@@ -173,6 +177,47 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 			return NET_RX_DROP;
 		}
 	}
+
+    /* SRH policy check */
+    nhdr = ipv6_hdr(skb);
+    segments = seg6_get_random_segments(&nhdr->daddr);
+    if (segments) {
+        srhlen = 8 + 16*(segments->seg_size-1);
+        if (pskb_expand_head(skb, 0, srhlen, GFP_ATOMIC))
+            goto drop;
+
+        /* XXX we assume that skb is linear */
+
+        // ptr to put: ipv6_hdr(skb) + sizeof(struct ipv6hdr)
+
+        nhdr = ipv6_hdr(skb);
+        srh = (void *)nhdr + sizeof(struct ipv6hdr);
+
+//        memmove(srh + srhlen, srh, skb->len - (srh - skb->data));
+        memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr)));
+        // no header offset update is required are SRH is still in transport
+//        skb_put(skb, srhlen); // increase tail and len
+//        skb->len += srhlen;
+        srh->nexthdr = nhdr->nexthdr; // swap nh
+        nhdr->nexthdr = NEXTHDR_SRH;
+        nhdr->payload_len = htons(skb->len);
+        skb->len += srhlen;
+
+        srh->hdrlen = (segments->seg_size - 1) << 1;
+        srh->type = 0;
+        srh->next_segment = 0;
+        srh->last_segment = (segments->seg_size - 2) << 1;
+        srh->f1 = 0;
+        srh->f2 = 0;
+        srh->f3 = 0;
+        /* we copy only n-1 segments as first segments will be DA */
+        memcpy(srh->segments, &segments->segments[1], (segments->seg_size - 1)*sizeof(struct in6_addr));
+
+        /* we assume that last segment is original DA. Perhaps we could use a policy entry to save it ? */
+        nhdr->daddr = segments->segments[0];
+        skb_dst_drop(skb);
+        /* ip6_rcv_finish will take care of route input for us */
+    }
 
 	rcu_read_unlock();
 

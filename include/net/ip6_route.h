@@ -201,4 +201,46 @@ static inline struct in6_addr *rt6_nexthop(struct rt6_info *rt, struct in6_addr 
 	return dest;
 }
 
+struct seg6_list {
+    u16 id;
+    struct in6_addr *segments;
+    int seg_size;
+
+    struct seg6_list *next;
+};
+
+struct seg6_info {
+    struct in6_addr dst;
+    int dst_len;
+
+    struct seg6_list *list;
+    int list_size;
+
+    struct hlist_node seg_chain;
+};
+
+struct seg6_newpol {
+    struct in6_addr dst;
+    int dst_len;
+};
+
+struct seg6_addseg {
+    struct in6_addr dst;
+    int dst_len;
+    u16 id;
+    struct in6_addr segment;
+};
+
+struct seg6_msg {
+    int msg;
+    void *data;
+};
+
+#define SEG6NEWPOL      0x0001
+#define SEG6ADDSEG      0x0002
+#define SEG6FLUSH       0x0004
+#define SEG6DUMP        0x0005
+
+extern struct seg6_list *seg6_get_random_segments(struct in6_addr *dst);
+
 #endif

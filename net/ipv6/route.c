@@ -65,6 +65,11 @@
 #include <linux/sysctl.h>
 #endif
 
+//#define seg6_hashfn(dst) hash_64((u64)*((dst)->s6_addr+8), 12) // 4096 slots
+#define seg6_addrto64(addr) ((u64)((u64)(addr)->s6_addr[0] << 56 | (u64)(addr)->s6_addr[1] << 48 | (u64)(addr)->s6_addr[2] << 40 | (u64)(addr)->s6_addr[3] << 32 | (addr)->s6_addr[12] << 24 | (addr)->s6_addr[13] << 16 | (addr)->s6_addr[14] << 8 | (addr)->s6_addr[15]))
+#define seg6_hashfn(dst) hash_64(seg6_addrto64(dst), 12)
+static struct hlist_head *seg6_hash;
+
 static struct rt6_info *ip6_rt_copy(struct rt6_info *ort,
 				    const struct in6_addr *dest);
 static struct dst_entry	*ip6_dst_check(struct dst_entry *dst, u32 cookie);
@@ -1947,10 +1952,187 @@ static void rtmsg_to_fib6_config(struct net *net,
 	cfg->fc_gateway = rtmsg->rtmsg_gateway;
 }
 
+struct seg6_list *seg6_get_random_segments(struct in6_addr *dst)
+{
+    struct seg6_info *info;
+    struct seg6_list *node;
+    int found = 0;
+    int i, id;
+
+    hlist_for_each_entry_rcu(info, &seg6_hash[seg6_hashfn(dst)], seg_chain) {
+        if (ipv6_prefix_equal(dst, &info->dst, info->dst_len)) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found)
+        return NULL;
+
+    if (info->list_size == 0)
+        return NULL;
+
+    id = net_random()%info->list_size;
+    node = info->list;
+    for (i = 0; i < id; i++)
+        node = node->next;
+
+    return node;
+}
+
+static int seg6_create_pol(struct seg6_newpol *npmsg)
+{
+    struct seg6_info *tmp;
+
+    hlist_for_each_entry_rcu(tmp, &seg6_hash[seg6_hashfn(&npmsg->dst)], seg_chain) {
+        if (memcmp(tmp->dst.s6_addr, npmsg->dst.s6_addr, 16) == 0 && tmp->dst_len == npmsg->dst_len)
+            return -EEXIST;
+    }
+
+    // no entry, add one
+
+    tmp = kzalloc(sizeof(*tmp), GFP_KERNEL);
+    if (!tmp)
+        return -ENOMEM;
+
+    memcpy(tmp->dst.s6_addr, npmsg->dst.s6_addr, 16);
+    tmp->dst_len = npmsg->dst_len;
+
+    hlist_add_head_rcu(&tmp->seg_chain, &seg6_hash[seg6_hashfn(&tmp->dst)]);
+
+    return 0;
+}
+
+static int seg6_flush_segments(void)
+{
+    struct seg6_info *info;
+    struct hlist_node *itmp;
+    struct seg6_list *list;
+    int i;
+
+    for (i = 0; i < 4096; i++) {
+        hlist_for_each_entry_safe(info, itmp, &seg6_hash[i], seg_chain) {
+            while (info->list != NULL) {
+                list = info->list->next;
+                kfree(info->list->segments);
+                kfree(info->list);
+                info->list = list;
+            }
+            hlist_del_rcu(&info->seg_chain);
+            kfree(info);
+        }
+    }
+
+    return 0;
+}
+
+static int seg6_dump_segments(void)
+{
+    struct seg6_info *info;
+    struct seg6_list *list;
+    int i, j;
+
+    for (i = 0; i < 4096; i++) {
+        hlist_for_each_entry_rcu(info, &seg6_hash[i], seg_chain) {
+            list = info->list;
+            printk(KERN_DEBUG "seg6_dump_segments(): dumping %u entries for dst %pI6 dstlen %u\n", info->list_size, &info->dst, info->dst_len);
+            while (list != NULL) {
+                printk(KERN_DEBUG "seg6_dump_segments(): dumping %u segments for subentry %u\n", list->seg_size, list->id);
+                for (j = 0; j < list->seg_size; j++)
+                    printk(KERN_DEBUG "seg6_dump_segments(): subentry %u segment #%u is %pI6\n", list->id, j, &list->segments[j]);
+                list = list->next;
+            }
+        }
+    }
+
+    return 0;
+}
+
+static int seg6_add_segment(struct seg6_addseg *segmsg)
+{
+    struct seg6_info *info;
+    struct seg6_list *tmp;
+    struct in6_addr *segments;
+    int found = 0;
+
+    hlist_for_each_entry_rcu(info, &seg6_hash[seg6_hashfn(&segmsg->dst)], seg_chain) {
+        if (memcmp(info->dst.s6_addr, segmsg->dst.s6_addr, 16) == 0 && info->dst_len == segmsg->dst_len) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found)
+        return -ENOENT;
+
+    // first call to SIOCADDSG after initial SIOCNEWSG
+    if (info->list_size == 0) {
+        info->list = kzalloc(sizeof(struct seg6_list), GFP_KERNEL);
+        if (!info->list)
+            return -ENOMEM;
+        tmp = info->list;
+        tmp->id = segmsg->id;
+        tmp->seg_size = 1;
+        tmp->next = NULL;
+        tmp->segments = kmalloc(sizeof(struct in6_addr), GFP_KERNEL);
+        if (!tmp->segments) {
+            kfree(info->list);
+            return -ENOMEM;
+        }
+        memcpy(tmp->segments[0].s6_addr, segmsg->segment.s6_addr, 16);
+
+        info->list_size++;
+        return 0;
+    }
+
+    found = 0;
+    for (tmp = info->list; tmp; tmp = tmp->next) {
+        if (tmp->id == segmsg->id) {
+            found = 1;
+            break;
+        }
+    }
+
+    // entry for dst exists but id does not exist yet
+    if (!found) {
+        tmp = kzalloc(sizeof(struct seg6_list), GFP_KERNEL);
+        if (!tmp)
+            return -ENOMEM;
+        tmp->id = segmsg->id;
+        tmp->seg_size = 1;
+        tmp->next = info->list;
+        tmp->segments = kmalloc(sizeof(struct in6_addr), GFP_KERNEL);
+        if (!tmp->segments) {
+            kfree(tmp);
+            return -ENOMEM;
+        }
+        memcpy(tmp->segments[0].s6_addr, segmsg->segment.s6_addr, 16);
+
+        info->list = tmp;
+        info->list_size++;
+        return 0;
+    }
+
+    // entry for dst exists as well as id
+
+    segments = krealloc(tmp->segments, (tmp->seg_size+1)*sizeof(struct in6_addr), GFP_KERNEL);
+    if (!segments)
+        return -ENOMEM;
+
+    tmp->seg_size++;
+    memcpy(segments[tmp->seg_size-1].s6_addr, segmsg->segment.s6_addr, 16);
+    tmp->segments = segments;
+
+    return 0;
+}
+
 int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 {
 	struct fib6_config cfg;
 	struct in6_rtmsg rtmsg;
+    struct seg6_newpol s6newpol;
+    struct seg6_addseg s6addseg;
+    struct seg6_msg s6msg;
 	int err;
 
 	switch(cmd) {
@@ -1979,6 +2161,36 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		rtnl_unlock();
 
 		return err;
+    case SIOCSETSG:
+        if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
+            return -EPERM;
+
+        err = copy_from_user(&s6msg, arg, sizeof(struct seg6_msg));
+        if (err)
+            return -EFAULT;
+
+        switch(s6msg.msg) {
+        case SEG6NEWPOL:
+            err = copy_from_user(&s6newpol, s6msg.data, sizeof(struct seg6_newpol));
+            if (err)
+                return -EFAULT;
+
+            err = seg6_create_pol(&s6newpol);
+            return err;
+        case SEG6ADDSEG:
+            err = copy_from_user(&s6addseg, s6msg.data, sizeof(struct seg6_addseg));
+            if (err)
+                return -EFAULT;
+
+            err = seg6_add_segment(&s6addseg);
+            return err;
+        case SEG6FLUSH:
+            err = seg6_flush_segments();
+            return err;
+        case SEG6DUMP:
+            err = seg6_dump_segments();
+            return err;
+        }
 	}
 
 	return -EINVAL;
@@ -3048,6 +3260,20 @@ static struct notifier_block ip6_route_dev_notifier = {
 	.priority = 0,
 };
 
+static int __net_init seg6_init(void)
+{
+    unsigned int i;
+
+    seg6_hash = kzalloc(4096*sizeof(*seg6_hash), GFP_KERNEL);
+    if (!seg6_hash)
+        return 1;
+
+    for (i = 0; i < 4096; i++)
+        INIT_HLIST_HEAD(&seg6_hash[i]);
+
+    return 0;
+}
+
 int __init ip6_route_init(void)
 {
 	int ret;
@@ -3110,9 +3336,15 @@ int __init ip6_route_init(void)
 	if (ret)
 		goto out_register_late_subsys;
 
+    ret = seg6_init();
+    if (ret)
+        goto out_register_netdevice;
+
 out:
 	return ret;
 
+out_register_netdevice:
+    unregister_netdevice_notifier(&ip6_route_dev_notifier);
 out_register_late_subsys:
 	unregister_pernet_subsys(&ip6_route_net_late_ops);
 fib6_rules_init:

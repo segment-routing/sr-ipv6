@@ -513,7 +513,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
     struct in6_addr daddr;
     struct ipv6_sr_hdr *hdr;
     struct net *net = dev_net(skb->dev);
-    int inc = 0, cleanup = 0;
+    int inc = 0, cleanup = 0, topid = 0;
     char hmac_key_default[] = "YELLOW SUBMARINE";
     u32 hmac_output[5];
     u8 *hmac_input;
@@ -592,10 +592,16 @@ looped_back:
         if (sr_get_flags(hdr) & 0x2)
             cleanup = 1;
     } else {
+        topid = cleanup = 1;
+    }
+
+    if (cleanup) {
         opt->lastopt = skb_network_header_len(skb);
         skb->transport_header += (hdr->hdrlen + 1) << 3;
         opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
-        return 1;
+        if (topid)
+            return 1;
+        /* TODO remove srh */
     }
 
     if (skb_cloned(skb)) {
