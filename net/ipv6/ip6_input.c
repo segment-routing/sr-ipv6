@@ -200,8 +200,8 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 //        skb->len += srhlen;
         srh->nexthdr = nhdr->nexthdr; // swap nh
         nhdr->nexthdr = NEXTHDR_SRH;
-        nhdr->payload_len = htons(skb->len);
         skb->len += srhlen;
+        nhdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
         srh->hdrlen = (segments->seg_size - 1) << 1;
         srh->type = 0;
