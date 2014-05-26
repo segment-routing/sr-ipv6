@@ -518,6 +518,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
     u32 hmac_output[5];
     u8 *hmac_input;
     u8 hmac_key_id;
+    int nh, srhlen;
 
     if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
         !pskb_may_pull(skb, (skb_transport_offset(skb) +
@@ -592,16 +593,14 @@ looped_back:
         if (sr_get_flags(hdr) & 0x2)
             cleanup = 1;
     } else {
-        topid = cleanup = 1;
+        topid = 1;
     }
 
     if (cleanup) {
         opt->lastopt = skb_network_header_len(skb);
         skb->transport_header += (hdr->hdrlen + 1) << 3;
         opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
-        if (topid)
-            return 1;
-        /* TODO remove srh */
+        return 1;
     }
 
     if (skb_cloned(skb)) {
@@ -625,6 +624,17 @@ looped_back:
 //    daddr = *addr;
 //    *addr = ipv6_hdr(skb)->daddr;
     ipv6_hdr(skb)->daddr = *addr;
+
+    /* cleanup */
+
+    if (cleanup) {
+        nh = hdr->nexthdr;
+        srhlen = (hdr->hdrlen + 1) << 3;
+        memmove(hdr, (void *)hdr + srhlen, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr) + srhlen));
+        ipv6_hdr(skb)->nexthdr = nh; /* XXX we consider that SRH is right after IPv6 header */
+        skb_trim(skb, skb->len - srhlen);
+        ipv6_hdr(skb)->payload_len = htons(skb->len); /* XXX it seems that at this stage, skb->len does not include ipv6hdr */
+    }
 
     skb_dst_drop(skb);
     ip6_route_input(skb);
