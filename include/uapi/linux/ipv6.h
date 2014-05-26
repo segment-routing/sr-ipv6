@@ -68,6 +68,37 @@ struct ipv6_sr_hdr {
     struct in6_addr segments[0];
 } __attribute__((packed));
 
+static inline void sr_set_flags(struct ipv6_sr_hdr *hdr, u8 flags)
+{
+    hdr->f1 = ((flags & 0x0f) << 4) | (hdr->f1 & 0x0f);
+}
+
+static inline u8 sr_get_flags(struct ipv6_sr_hdr *hdr)
+{
+    return (hdr->f1 >> 4) & 0x0f;
+}
+
+static inline void sr_set_hmac_key_id(struct ipv6_sr_hdr *hdr, u8 hmackeyid)
+{
+    hdr->f1 = (hdr->f1 & 0xf0) | (hmackeyid >> 4);
+    hdr->f2 = (hmackeyid << 4) | (hdr->f2 & 0x0f);
+}
+
+static inline u8 sr_get_hmac_key_id(struct ipv6_sr_hdr *hdr)
+{
+    return (hdr->f1 << 4) | (hdr->f2 >> 4);
+}
+
+static inline void sr_set_policy_flags(struct ipv6_sr_hdr *hdr, u16 pflags)
+{
+    hdr->f2 = (hdr->f2 & 0xf0) | ((pflags >> 8) & 0x0f);
+    hdr->f3 = (u8)(pflags & 0xff);
+}
+
+static inline u16 sr_get_policy_flags(struct ipv6_sr_hdr *hdr)
+{
+    return ((hdr->f2 & 0x0f) << 8) | hdr->f3;
+}
 
 struct ipv6_opt_hdr {
 	__u8 		nexthdr;

@@ -193,11 +193,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
         nhdr = ipv6_hdr(skb);
         srh = (void *)nhdr + sizeof(struct ipv6hdr);
 
-//        memmove(srh + srhlen, srh, skb->len - (srh - skb->data));
         memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr)));
-        // no header offset update is required are SRH is still in transport
-//        skb_put(skb, srhlen); // increase tail and len
-//        skb->len += srhlen;
         srh->nexthdr = nhdr->nexthdr; // swap nh
         nhdr->nexthdr = NEXTHDR_SRH;
         skb->len += srhlen;
