@@ -2003,21 +2003,53 @@ static int seg6_create_pol(struct seg6_newpol *npmsg)
     return 0;
 }
 
+static void __seg6_flush_segment(struct seg6_info *info)
+{
+    struct seg6_list *list;
+
+    while (info->list != NULL) {
+        list = info->list->next;
+        kfree(info->list->segments);
+        kfree(info->list);
+        info->list_size--;
+        info->list = list;
+    }
+}
+
+static int __seg6_remove_id(struct seg6_info *info, u16 id)
+{
+    struct seg6_list *list, plist;
+    int found = 0;
+
+    plist = list = info->list;
+    while (list != NULL) {
+        if (list->id == id) {
+            if (list == info->list)
+                info->list = list->next;
+            else
+                plist->next = list->next;
+            kfree(list->segments);
+            kfree(list);
+            info->list_size--;
+            found = 1;
+            break;
+        }
+        plist = list;
+        list = list->next;
+    }
+
+    return found ? 0 : 1;
+}
+
 static int seg6_flush_segments(void)
 {
     struct seg6_info *info;
     struct hlist_node *itmp;
-    struct seg6_list *list;
     int i;
 
     for (i = 0; i < 4096; i++) {
         hlist_for_each_entry_safe(info, itmp, &seg6_hash[i], seg_chain) {
-            while (info->list != NULL) {
-                list = info->list->next;
-                kfree(info->list->segments);
-                kfree(info->list);
-                info->list = list;
-            }
+            __seg6_flush_segment(info);
             hlist_del_rcu(&info->seg_chain);
             kfree(info);
         }
@@ -2048,6 +2080,37 @@ static int seg6_dump_segments(void)
     return 0;
 }
 
+static int seg6_del_segment(struct seg6_delseg *segmsg)
+{
+    struct seg6_info *info;
+    struct seg6_list *list, *plist;
+    int found = 0;
+
+    hlist_for_each_entry_rcu(info, &seg6_hash[seg6_hashfn(&segmsg->dst)], seg_chain) {
+        if (memcmp(info->dst.s6_addr, segmsg->dst.s6_addr, 16) == 0 && info->dst_len == segmsg->dst_len) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found)
+        return -ENOENT;
+
+    if (segmsg->id == (u16)-1) {
+        __seg6_flush_segment(info);
+    } else {
+        if (__seg6_remove_id(info, segmsg->id))
+            return -ENOENT;
+    }
+
+    if (info->list_size == 0) {
+        hlist_del_rcu(&info->seg_chain);
+        kfree(info);
+    }
+
+    return 0;
+}
+
 static int seg6_add_segment(struct seg6_addseg *segmsg)
 {
     struct seg6_info *info;
@@ -2073,6 +2136,7 @@ static int seg6_add_segment(struct seg6_addseg *segmsg)
         tmp = info->list;
         tmp->id = segmsg->id;
         tmp->seg_size = 1;
+        tmp->cleanup = segmsg->cleanup;
         tmp->next = NULL;
         tmp->segments = kmalloc(sizeof(struct in6_addr), GFP_KERNEL);
         if (!tmp->segments) {
@@ -2101,6 +2165,7 @@ static int seg6_add_segment(struct seg6_addseg *segmsg)
         tmp->id = segmsg->id;
         tmp->seg_size = 1;
         tmp->next = info->list;
+        tmp->cleanup = segmsg->cleanup;
         tmp->segments = kmalloc(sizeof(struct in6_addr), GFP_KERNEL);
         if (!tmp->segments) {
             kfree(tmp);
@@ -2132,6 +2197,7 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	struct in6_rtmsg rtmsg;
     struct seg6_newpol s6newpol;
     struct seg6_addseg s6addseg;
+    struct seg6_delseg s6delseg;
     struct seg6_msg s6msg;
 	int err;
 
@@ -2183,6 +2249,13 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
                 return -EFAULT;
 
             err = seg6_add_segment(&s6addseg);
+            return err;
+        case SEG6DELSEG:
+            err = copy_from_user(&s6delseg, s6msg.data, sizeof(struct seg6_delseg));
+            if (err)
+                return -EFAULT;
+
+            err = seg6_del_segment(&s6delseg);
             return err;
         case SEG6FLUSH:
             err = seg6_flush_segments();

@@ -228,7 +228,14 @@ struct seg6_addseg {
     struct in6_addr dst;
     int dst_len;
     u16 id;
+    int cleanup;
     struct in6_addr segment;
+};
+
+struct seg6_delseg {
+    struct in6_addr dst;
+    int dst_len;
+    u16 id;
 };
 
 struct seg6_msg {
@@ -240,6 +247,7 @@ struct seg6_msg {
 #define SEG6ADDSEG      0x0002
 #define SEG6FLUSH       0x0004
 #define SEG6DUMP        0x0005
+#define SEG6DELSEG      0x0006
 
 extern struct seg6_list *seg6_get_random_segments(struct in6_addr *dst);
 

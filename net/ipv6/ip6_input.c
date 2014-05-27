@@ -206,6 +206,8 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
         srh->f1 = 0;
         srh->f2 = 0;
         srh->f3 = 0;
+        if (segments->cleanup)
+            sr_set_flags(srh, 0x2);
         /* we copy only n-1 segments as first segments will be DA */
         memcpy(srh->segments, &segments->segments[1], (segments->seg_size - 1)*sizeof(struct in6_addr));
 
