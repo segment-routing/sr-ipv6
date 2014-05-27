@@ -182,6 +182,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
     nhdr = ipv6_hdr(skb);
     segments = seg6_get_random_segments(&nhdr->daddr);
     if (segments) {
+        printk(KERN_DEBUG "SR-IPv6: daddr %pI6 got matching segments\n", &nhdr->daddr);
         srhlen = 8 + 16*(segments->seg_size-1);
         if (pskb_expand_head(skb, 0, srhlen, GFP_ATOMIC))
             goto drop;

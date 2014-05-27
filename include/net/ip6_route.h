@@ -205,6 +205,7 @@ struct seg6_list {
     u16 id;
     struct in6_addr *segments;
     int seg_size;
+    int cleanup;
 
     struct seg6_list *next;
 };
