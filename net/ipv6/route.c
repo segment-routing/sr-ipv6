@@ -2018,7 +2018,7 @@ static void __seg6_flush_segment(struct seg6_info *info)
 
 static int __seg6_remove_id(struct seg6_info *info, u16 id)
 {
-    struct seg6_list *list, plist;
+    struct seg6_list *list, *plist;
     int found = 0;
 
     plist = list = info->list;
@@ -2083,7 +2083,6 @@ static int seg6_dump_segments(void)
 static int seg6_del_segment(struct seg6_delseg *segmsg)
 {
     struct seg6_info *info;
-    struct seg6_list *list, *plist;
     int found = 0;
 
     hlist_for_each_entry_rcu(info, &seg6_hash[seg6_hashfn(&segmsg->dst)], seg_chain) {
