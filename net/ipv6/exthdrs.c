@@ -491,7 +491,7 @@ looped_back:
         topid = 1;
     }
 
-    if (cleanup) {
+    if (topid) {
         opt->lastopt = skb_network_header_len(skb);
         skb->transport_header += (hdr->hdrlen + 1) << 3;
         opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
