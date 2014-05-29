@@ -72,6 +72,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
     int srhlen;
     struct ipv6_sr_hdr *srh;
     struct ipv6hdr *nhdr;
+    struct sk_buff *oldskb;
 
 	if (skb->pkt_type == PACKET_OTHERHOST) {
 		kfree_skb(skb);
@@ -180,12 +181,19 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 
     /* SRH policy check */
     nhdr = ipv6_hdr(skb);
-    segments = seg6_get_random_segments(&nhdr->daddr);
+    segments = seg6_get_random_segments(net, &nhdr->daddr);
     if (segments) {
-        printk(KERN_DEBUG "SR-IPv6: daddr %pI6 got matching segments\n", &nhdr->daddr);
+//        printk(KERN_DEBUG "SR-IPv6: daddr %pI6 got matching segments\n", &nhdr->daddr);
+
         srhlen = 8 + 16*(segments->seg_size-1);
-        if (pskb_expand_head(skb, 0, srhlen, GFP_ATOMIC))
-            goto drop;
+
+        oldskb = skb;
+        skb = skb_copy_expand(skb, 0, srhlen, GFP_ATOMIC);
+        kfree_skb(oldskb);
+        skb_put(skb, srhlen);
+
+//        if (pskb_expand_head(skb, 0, srhlen, GFP_ATOMIC))
+//            goto drop;
 
         /* XXX we assume that skb is linear */
 
@@ -197,7 +205,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
         memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr)));
         srh->nexthdr = nhdr->nexthdr; // swap nh
         nhdr->nexthdr = NEXTHDR_SRH;
-        skb->len += srhlen;
+//        skb->len += srhlen;
         nhdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
         srh->hdrlen = (segments->seg_size - 1) << 1;

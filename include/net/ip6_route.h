@@ -250,6 +250,6 @@ struct seg6_msg {
 #define SEG6DUMP        0x0005
 #define SEG6DELSEG      0x0006
 
-extern struct seg6_list *seg6_get_random_segments(struct in6_addr *dst);
+extern struct seg6_list *seg6_get_random_segments(struct net *net, struct in6_addr *dst);
 
 #endif
