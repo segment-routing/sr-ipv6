@@ -202,7 +202,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
         nhdr = ipv6_hdr(skb);
         srh = (void *)nhdr + sizeof(struct ipv6hdr);
 
-        memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr)));
+        memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr) + srhlen));
         srh->nexthdr = nhdr->nexthdr; // swap nh
         nhdr->nexthdr = NEXTHDR_SRH;
 //        skb->len += srhlen;
