@@ -205,12 +205,11 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
         memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr) + srhlen));
         srh->nexthdr = nhdr->nexthdr; // swap nh
         nhdr->nexthdr = NEXTHDR_ROUTING;
-        nhdr->type = 4; // XXX cisco-defined
 //        skb->len += srhlen;
         nhdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
         srh->hdrlen = (segments->seg_size - 1) << 1;
-        srh->type = 0;
+        srh->type = 4; // XXX cisco-defined
         srh->next_segment = 0;
         srh->last_segment = (segments->seg_size - 2) << 1;
         srh->f1 = 0;
