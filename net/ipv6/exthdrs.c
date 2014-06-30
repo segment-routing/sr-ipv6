@@ -433,14 +433,14 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
     u8 hmac_key_id;
     int nh, srhlen;
 
-    if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
+/*    if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
         !pskb_may_pull(skb, (skb_transport_offset(skb) +
                 ((skb_transport_header(skb)[1] + 1) << 3)))) {
         IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
                 IPSTATS_MIB_INHDRERRORS);
         kfree_skb(skb);
         return -1;
-    }
+    }*/
 
     hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
@@ -585,6 +585,10 @@ static int ipv6_rthdr_rcv(struct sk_buff *skb)
 	}
 
 	hdr = (struct ipv6_rt_hdr *)skb_transport_header(skb);
+
+    /* XXX segment routing */
+    if (hdr->type == 4)
+        return ipv6_srh_rcv(skb);
 
 	if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr) ||
 	    skb->pkt_type != PACKET_HOST) {
@@ -760,10 +764,10 @@ static const struct inet6_protocol nodata_protocol = {
 	.flags		=	INET6_PROTO_NOPOLICY,
 };
 
-static const struct inet6_protocol srh_protocol = {
+/*static const struct inet6_protocol srh_protocol = {
     .handler    =   ipv6_srh_rcv,
     .flags      =   INET6_PROTO_NOPOLICY,
-};
+};*/
 
 int __init ipv6_exthdrs_init(void)
 {
@@ -777,18 +781,19 @@ int __init ipv6_exthdrs_init(void)
 	if (ret)
 		goto out_rthdr;
 
-    ret = inet6_add_protocol(&srh_protocol, IPPROTO_SRH);
+/*    ret = inet6_add_protocol(&srh_protocol, IPPROTO_SRH);
     if (ret)
-        goto out_destopt;
+        goto out_destopt;*/
 
 	ret = inet6_add_protocol(&nodata_protocol, IPPROTO_NONE);
 	if (ret)
-		goto out_srh;
+        goto out_destopt;
+//		goto out_srh;
 
 out:
 	return ret;
-out_srh:
-    inet6_del_protocol(&srh_protocol, IPPROTO_SRH);
+/*out_srh:
+    inet6_del_protocol(&srh_protocol, IPPROTO_SRH);*/
 out_destopt:
 	inet6_del_protocol(&destopt_protocol, IPPROTO_DSTOPTS);
 out_rthdr:
@@ -799,7 +804,7 @@ out_rthdr:
 void ipv6_exthdrs_exit(void)
 {
 	inet6_del_protocol(&nodata_protocol, IPPROTO_NONE);
-    inet6_del_protocol(&srh_protocol, IPPROTO_SRH);
+//    inet6_del_protocol(&srh_protocol, IPPROTO_SRH);
 	inet6_del_protocol(&destopt_protocol, IPPROTO_DSTOPTS);
 	inet6_del_protocol(&rthdr_protocol, IPPROTO_ROUTING);
 }
