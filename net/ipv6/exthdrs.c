@@ -50,6 +50,7 @@
 
 #include <crypto/hash.h>
 #include <crypto/sha.h>
+#include <net/seg6.h>
 
 #include <asm/uaccess.h>
 
@@ -295,130 +296,6 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 	return -1;
 }
 
-/*
- * SRH-IPV6 header
- */
-
-static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
-{
-    u32 workspace[SHA_WORKSPACE_WORDS];
-    u32 padlen;
-    char *pptr;
-    int i;
-    __be64 bits;
-
-    memset(workspace, 0, sizeof(workspace));
-
-    if (len % 64 != 0)
-        padlen = 64 - (len%64);
-    else
-        padlen = 0;
-
-    char plaintext[len+padlen];
-    memset(plaintext, 0, len+padlen);
-    memcpy(plaintext, message, len);
-
-    pptr = plaintext+len;
-
-    if (padlen) {
-        bits = cpu_to_be64(len << 3);
-        memcpy(pptr + padlen - sizeof(bits), (const u8 *)&bits, sizeof(bits));
-        *pptr = 0x80;
-    }
-
-    sha_init(hash_out);
-
-    for (i = 0; i < len+padlen; i += 64)
-        sha_transform(hash_out, plaintext+i, workspace);
-
-    for (i = 0; i < 5; i++)
-        hash_out[i] = cpu_to_be32(hash_out[i]);
-
-    memset(workspace, 0, sizeof(workspace));
-}
-
-static int sr_hmac_sha1(u8 *key, u8 ksize, struct sk_buff *skb, u32 *output)
-{
-    struct ipv6_sr_hdr *hdr;
-    unsigned int plen;
-    struct in6_addr *addr;
-    int i;
-    char *pptr;
-    u8 i_pad[64], o_pad[64];
-    u8 realkey[64];
-    u32 hash_out[5];
-    u8 outer_msg[84]; // 20 (hash) + 64 (o_pad)
-
-    if (!ksize)
-        return -EINVAL;
-
-    hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
-
-    plen = 16 + 1 + 1 + 1 + (hdr->last_segment+2)*8;
-/*    if (plen % 64 != 0)
-        padlen = 64 - (plen%64);
-    else
-        padlen = 0;*/
-
-    u8 inner_msg[64+plen];
-    pptr = inner_msg+64;
-
-    memset(pptr, 0, plen);
-
-    printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with SA %pI6\n", &ipv6_hdr(skb)->saddr);
-    printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with last_segment %u\n", hdr->last_segment);
-    printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with clean up flag %u\n", sr_get_flags(hdr) & 0x02);
-    printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with hmac key id %u\n", sr_get_hmac_key_id(hdr));
-
-    memcpy(pptr, ipv6_hdr(skb)->saddr.s6_addr, 16);
-    pptr += 16;
-    *pptr++ = hdr->last_segment;
-    *pptr++ = sr_get_flags(hdr) & 0x02;
-    *pptr++ = sr_get_hmac_key_id(hdr);
-
-    for (i = 0; i < hdr->last_segment + 2; i += 2) {
-        addr = hdr->segments + (i >> 1);
-        memcpy(pptr, addr->s6_addr, 16);
-        pptr += 16;
-    }
-
-    /* message padding */
-
-/*    if (padlen) {
-        *pptr = 0x80; // set first bit of padding to 1
-        *(unsigned int *)(pptr + padlen - 4) = cpu_to_be32(plen);
-    }*/
-
-    memset(realkey, 0, 64);
-    memset(hash_out, 0, 20);
-
-    if (ksize > 64) {
-        sr_sha1(key, ksize, hash_out);
-        memcpy(realkey, hash_out, 20);
-        memset(hash_out, 0, 20);
-    } else {
-        memcpy(realkey, key, ksize);
-    }
-
-    memset(i_pad, 0x36, 64);
-    memset(o_pad, 0x5c, 64);
-
-    for (i = 0; i < 64; i++) {
-        i_pad[i] ^= realkey[i];
-        o_pad[i] ^= realkey[i];
-    }
-
-    memcpy(inner_msg, i_pad, 64);
-    sr_sha1(inner_msg, 64+plen, hash_out);
-
-    memcpy(outer_msg, o_pad, 64);
-    memcpy(outer_msg+64, hash_out, 20);
-
-    sr_sha1(outer_msg, 84, output);
-
-    return 0;
-}
-
 /* called with rcu_read_lock() */
 static int ipv6_srh_rcv(struct sk_buff *skb)
 {
@@ -432,15 +309,6 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
     u8 *hmac_input;
     u8 hmac_key_id;
     int nh, srhlen;
-
-/*    if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
-        !pskb_may_pull(skb, (skb_transport_offset(skb) +
-                ((skb_transport_header(skb)[1] + 1) << 3)))) {
-        IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
-                IPSTATS_MIB_INHDRERRORS);
-        kfree_skb(skb);
-        return -1;
-    }*/
 
     hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 

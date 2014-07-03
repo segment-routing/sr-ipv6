@@ -44,7 +44,7 @@
 #include <net/ip6_route.h>
 #include <net/addrconf.h>
 #include <net/xfrm.h>
-
+#include <net/seg6.h>
 
 
 int ip6_rcv_finish(struct sk_buff *skb)
@@ -179,52 +179,8 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 		}
 	}
 
-    /* SRH policy check */
-    nhdr = ipv6_hdr(skb);
-    segments = seg6_get_random_segments(net, &nhdr->daddr);
-    if (segments) {
-//        printk(KERN_DEBUG "SR-IPv6: daddr %pI6 got matching segments\n", &nhdr->daddr);
-
-        srhlen = 8 + 16*(segments->seg_size-1);
-
-        oldskb = skb;
-        skb = skb_copy_expand(skb, 0, srhlen, GFP_ATOMIC);
-        kfree_skb(oldskb);
-        skb_put(skb, srhlen);
-
-//        if (pskb_expand_head(skb, 0, srhlen, GFP_ATOMIC))
-//            goto drop;
-
-        /* XXX we assume that skb is linear */
-
-        // ptr to put: ipv6_hdr(skb) + sizeof(struct ipv6hdr)
-
-        nhdr = ipv6_hdr(skb);
-        srh = (void *)nhdr + sizeof(struct ipv6hdr);
-
-        memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr) + srhlen));
-        srh->nexthdr = nhdr->nexthdr; // swap nh
-        nhdr->nexthdr = NEXTHDR_ROUTING;
-//        skb->len += srhlen;
-        nhdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
-
-        srh->hdrlen = (segments->seg_size - 1) << 1;
-        srh->type = 4; // XXX cisco-defined
-        srh->next_segment = 0;
-        srh->last_segment = (segments->seg_size - 2) << 1;
-        srh->f1 = 0;
-        srh->f2 = 0;
-        srh->f3 = 0;
-        if (segments->cleanup)
-            sr_set_flags(srh, 0x8);
-        /* we copy only n-1 segments as first segments will be DA */
-        memcpy(srh->segments, &segments->segments[1], (segments->seg_size - 1)*sizeof(struct in6_addr));
-
-        /* we assume that last segment is original DA. Perhaps we could use a policy entry to save it ? */
-        nhdr->daddr = segments->segments[0];
-        skb_dst_drop(skb);
-        /* ip6_rcv_finish will take care of route input for us */
-    }
+    /* SRH processing */
+    seg6_process_skb(net, skb);
 
 	rcu_read_unlock();
 
