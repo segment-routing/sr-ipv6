@@ -24,6 +24,7 @@
 #include <net/addrconf.h>
 #include <net/xfrm.h>
 
+#include <linux/cryptohash.h>
 #include <crypto/hash.h>
 #include <crypto/sha.h>
 #include <net/seg6.h>
@@ -166,14 +167,15 @@ static struct seg6_list *seg6_get_random_segments(struct net *net, struct in6_ad
     return node;
 }
 
-int seg6_process_skb(struct net *net, struct sk_buff *skb)
+int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 {
     struct ipv6hdr *hdr;
-    struct sk_buff *oldskb;
+    struct sk_buff *skb, *oldskb;
     struct seg6_list *segments;
     int srhlen;
     struct ipv6_sr_hdr *srh;
 
+    skb = *skb_in;
     hdr = ipv6_hdr(skb);
     segments = seg6_get_random_segments(net, &hdr->daddr);
 
@@ -187,6 +189,7 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
     consume_skb(oldskb);
     skb_put(skb, srhlen);
 
+    hdr = ipv6_hdr(skb);
     srh = (void *)hdr + sizeof(struct ipv6hdr);
 
     memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr) + srhlen));
@@ -208,6 +211,8 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 
     hdr->daddr = segments->segments[0];
     skb_dst_drop(skb);
+
+    *skb_in = skb;
 
     return 1;
 }

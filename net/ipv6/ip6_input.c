@@ -68,11 +68,6 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	u32 		pkt_len;
 	struct inet6_dev *idev;
 	struct net *net = dev_net(skb->dev);
-    struct seg6_list *segments;
-    int srhlen;
-    struct ipv6_sr_hdr *srh;
-    struct ipv6hdr *nhdr;
-    struct sk_buff *oldskb;
 
 	if (skb->pkt_type == PACKET_OTHERHOST) {
 		kfree_skb(skb);
@@ -180,7 +175,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	}
 
     /* SRH processing */
-    seg6_process_skb(net, skb);
+    seg6_process_skb(net, &skb);
 
 	rcu_read_unlock();
 

@@ -8,6 +8,9 @@
 #include <linux/ipv6.h>
 #include <linux/route.h>
 
+#define seg6_addrto64(addr) ((u64)((u64)(addr)->s6_addr[0] << 56 | (u64)(addr)->s6_addr[1] << 48 | (u64)(addr)->s6_addr[2] << 40 | (u64)(addr)->s6_addr[3] << 32 | (addr)->s6_addr[12] << 24 | (addr)->s6_addr[13] << 16 | (addr)->s6_addr[14] << 8 | (addr)->s6_addr[15]))
+#define seg6_hashfn(dst) hash_64(seg6_addrto64(dst), 12)
+
 #define SEG6NEWPOL      0x0001
 #define SEG6ADDSEG      0x0002
 #define SEG6FLUSH       0x0004
@@ -63,6 +66,6 @@ extern int seg6_del_segment(struct net *net, struct seg6_delseg *segmsg);
 extern int seg6_dump_segments(struct net *net);
 extern int seg6_flush_segments(struct net *net);
 extern int seg6_create_pol(struct net *net, struct seg6_newpol *npmsg);
-extern int seg6_process_skb(struct net *net, struct sk_buff *skb);
+extern int seg6_process_skb(struct net *net, struct sk_buff **skb);
 
 #endif

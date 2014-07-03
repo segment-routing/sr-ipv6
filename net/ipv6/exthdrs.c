@@ -31,7 +31,6 @@
 #include <linux/icmpv6.h>
 #include <linux/slab.h>
 #include <linux/export.h>
-#include <linux/cryptohash.h>
 
 #include <net/dst.h>
 #include <net/sock.h>

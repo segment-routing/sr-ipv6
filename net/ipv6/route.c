@@ -69,6 +69,12 @@
 #define seg6_addrto64(addr) ((u64)((u64)(addr)->s6_addr[0] << 56 | (u64)(addr)->s6_addr[1] << 48 | (u64)(addr)->s6_addr[2] << 40 | (u64)(addr)->s6_addr[3] << 32 | (addr)->s6_addr[12] << 24 | (addr)->s6_addr[13] << 16 | (addr)->s6_addr[14] << 8 | (addr)->s6_addr[15]))
 #define seg6_hashfn(dst) hash_64(seg6_addrto64(dst), 12)
 
+enum rt6_nud_state {
+	RT6_NUD_FAIL_HARD = -2,
+	RT6_NUD_FAIL_SOFT = -1,
+	RT6_NUD_SUCCEED = 1
+};
+
 static struct rt6_info *ip6_rt_copy(struct rt6_info *ort,
 				    const struct in6_addr *dest);
 static struct dst_entry	*ip6_dst_check(struct dst_entry *dst, u32 cookie);
