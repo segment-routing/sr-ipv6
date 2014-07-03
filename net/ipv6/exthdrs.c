@@ -485,7 +485,7 @@ looped_back:
     if (hdr->next_segment != hdr->last_segment) {
         inc = 1;
     } else if (memcmp(ipv6_hdr(skb)->daddr.s6_addr, (*last_addr).s6_addr, 16) != 0) {
-        if (sr_get_flags(hdr) & 0x2)
+        if (sr_get_flags(hdr) & 0x8)
             cleanup = 1;
     } else {
         topid = 1;
