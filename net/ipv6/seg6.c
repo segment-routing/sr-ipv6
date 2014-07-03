@@ -210,7 +210,6 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
     memcpy(srh->segments, &segments->segments[1], (segments->seg_size - 1)*sizeof(struct in6_addr));
 
     hdr->daddr = segments->segments[0];
-    skb_dst_drop(skb);
 
     *skb_in = skb;
 

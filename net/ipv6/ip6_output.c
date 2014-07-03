@@ -55,15 +55,20 @@
 #include <net/xfrm.h>
 #include <net/checksum.h>
 #include <linux/mroute6.h>
+#include <net/seg6.h>
 
 int __ip6_local_out(struct sk_buff *skb)
 {
 	int len;
+    struct net *net = dev_net(skb_dst(skb)->dev);
 
 	len = skb->len - sizeof(struct ipv6hdr);
 	if (len > IPV6_MAXPLEN)
 		len = 0;
 	ipv6_hdr(skb)->payload_len = htons(len);
+
+    seg6_process_skb(net, &skb);
+    ip6_route_me_harder(skb);
 
 	return nf_hook(NFPROTO_IPV6, NF_INET_LOCAL_OUT, skb, NULL,
 		       skb_dst(skb)->dev, dst_output);
@@ -241,7 +246,12 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 	skb->priority = sk->sk_priority;
 	skb->mark = sk->sk_mark;
 
+    seg6_process_skb(net, &skb);
+    ip6_route_me_harder(skb);
+    dst = skb_dst(skb);
+
 	mtu = dst_mtu(dst);
+
 	if ((skb->len <= mtu) || skb->local_df || skb_is_gso(skb)) {
 		IP6_UPD_PO_STATS(net, ip6_dst_idev(skb_dst(skb)),
 			      IPSTATS_MIB_OUT, skb->len);
