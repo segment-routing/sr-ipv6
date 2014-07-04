@@ -60,15 +60,11 @@
 int __ip6_local_out(struct sk_buff *skb)
 {
 	int len;
-    struct net *net = dev_net(skb_dst(skb)->dev);
 
 	len = skb->len - sizeof(struct ipv6hdr);
 	if (len > IPV6_MAXPLEN)
 		len = 0;
 	ipv6_hdr(skb)->payload_len = htons(len);
-
-    seg6_process_skb(net, &skb);
-    ip6_route_me_harder(skb);
 
 	return nf_hook(NFPROTO_IPV6, NF_INET_LOCAL_OUT, skb, NULL,
 		       skb_dst(skb)->dev, dst_output);
@@ -77,10 +73,15 @@ int __ip6_local_out(struct sk_buff *skb)
 int ip6_local_out(struct sk_buff *skb)
 {
 	int err;
+    struct net *net = dev_net(skb_dst(skb)->dev);
 
 	err = __ip6_local_out(skb);
-	if (likely(err == 1))
+	if (likely(err == 1)) {
+        if (seg6_process_skb(net, &skb))
+            ip6_route_me_harder(skb);
+
 		err = dst_output(skb);
+    }
 
 	return err;
 }
@@ -246,9 +247,10 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 	skb->priority = sk->sk_priority;
 	skb->mark = sk->sk_mark;
 
-    seg6_process_skb(net, &skb);
-    ip6_route_me_harder(skb);
-    dst = skb_dst(skb);
+    if (seg6_process_skb(net, &skb)) {
+        ip6_route_me_harder(skb);
+        dst = skb_dst(skb);
+    }
 
 	mtu = dst_mtu(dst);
 
