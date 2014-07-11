@@ -63,6 +63,7 @@
 #include <net/inet_common.h>
 #include <net/secure_seq.h>
 #include <net/tcp_memcontrol.h>
+#include <net/seg6.h>
 
 #include <asm/uaccess.h>
 
@@ -138,6 +139,9 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	struct dst_entry *dst;
 	int addr_type;
 	int err;
+    struct seg6_list *segments;
+    struct ipv6_txoptions *opt2;
+    int tot_len;
 
 	if (addr_len < SIN6_LEN_RFC2133)
 		return -EINVAL;
@@ -253,6 +257,24 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	fl6.fl6_dport = usin->sin6_port;
 	fl6.fl6_sport = inet->inet_sport;
 
+    /* TODO add sysctl check */
+    segments = seg6_get_segments(sock_net(sk), &np->daddr);
+    if (!np->opt && segments) {
+        tot_len = CMSG_ALIGN(8 + 16*(segments->seg_size));
+        tot_len += sizeof(*opt2);
+        opt2 = sock_kmalloc(sk, tot_len, GFP_ATOMIC);
+        if (!opt2) {
+            err = -ENOBUFS;
+            goto failure;
+        }
+        memset(opt2, 0, tot_len);
+        seg6_build_tmpl_srh(segments, (struct ipv6_sr_hdr *)(opt2 + 1));
+        opt2->srcrt = (struct ipv6_rt_hdr *)(opt2 + 1);
+        opt2->srcrt_srh = 1;
+        opt2->opt_nflen = ipv6_optlen(opt2->srcrt);
+        np->opt = opt2;
+    }
+
 	final_p = fl6_update_dst(&fl6, np->opt, &final);
 
 	security_sk_classify_flow(sk, flowi6_to_flowi(&fl6));
@@ -282,6 +304,7 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 		tcp_fetch_timewait_stamp(sk, dst);
 
 	icsk->icsk_ext_hdr_len = 0;
+
 	if (np->opt)
 		icsk->icsk_ext_hdr_len = (np->opt->opt_flen +
 					  np->opt->opt_nflen);
@@ -1094,6 +1117,9 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	struct tcp_md5sig_key *key;
 #endif
 	struct flowi6 fl6;
+    struct seg6_list *segments;
+    struct ipv6_txoptions *opt2;
+    int tot_len;
 
 	if (skb->protocol == htons(ETH_P_IP)) {
 		/*
@@ -1220,6 +1246,25 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	   but we make one more one thing there: reattach optmem
 	   to newsk.
 	 */
+
+    /* TODO sysctl */
+    segments = seg6_get_segments(sock_net(newsk), &newnp->daddr);
+    if (!np->opt && segments) {
+        tot_len = CMSG_ALIGN(8 + 16*(segments->seg_size));
+        tot_len += sizeof(*opt2);
+        opt2 = sock_kmalloc(newsk, tot_len, GFP_ATOMIC);
+/*        if (!opt2) {
+            err = -ENOBUFS;
+            goto failure;
+        }*/
+        memset(opt2, 0, tot_len);
+        seg6_build_tmpl_srh(segments, (struct ipv6_sr_hdr *)(opt2 + 1));
+        opt2->srcrt = (struct ipv6_rt_hdr *)(opt2 + 1);
+        opt2->srcrt_srh = 1;
+        opt2->opt_nflen = ipv6_optlen(opt2->srcrt);
+        newnp->opt = opt2;
+    }
+
 	if (np->opt)
 		newnp->opt = ipv6_dup_options(newsk, np->opt);
 

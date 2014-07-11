@@ -67,5 +67,8 @@ extern int seg6_dump_segments(struct net *net);
 extern int seg6_flush_segments(struct net *net);
 extern int seg6_create_pol(struct net *net, struct seg6_newpol *npmsg);
 extern int seg6_process_skb(struct net *net, struct sk_buff **skb);
+extern struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst);
+extern void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh);
+
 
 #endif

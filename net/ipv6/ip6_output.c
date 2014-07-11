@@ -247,11 +247,6 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 	skb->priority = sk->sk_priority;
 	skb->mark = sk->sk_mark;
 
-    if (seg6_process_skb(net, &skb)) {
-        ip6_route_me_harder(skb);
-        dst = skb_dst(skb);
-    }
-
 	mtu = dst_mtu(dst);
 
 	if ((skb->len <= mtu) || skb->local_df || skb_is_gso(skb)) {

@@ -139,7 +139,7 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct sk_buff *skb, u32 *output)
 }
 EXPORT_SYMBOL(sr_hmac_sha1);
 
-static struct seg6_list *seg6_get_random_segments(struct net *net, struct in6_addr *dst)
+struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
 {
     struct seg6_info *info;
     struct seg6_list *node;
@@ -166,7 +166,30 @@ static struct seg6_list *seg6_get_random_segments(struct net *net, struct in6_ad
 
     return node;
 }
+EXPORT_SYMBOL(seg6_get_segments);
 
+/*
+ * Build 1:1 SRH without adding lasthop / removing first hop
+ */
+void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
+{
+    srh->hdrlen = (segments->seg_size) << 1;
+    srh->type = 4;
+    srh->next_segment = 0;
+    srh->last_segment = (segments->seg_size - 1) << 1;
+    srh->f1 = 0;
+    srh->f2 = 0;
+    srh->f3 = 0;
+    if (segments->cleanup)
+        sr_set_flags(srh, 0x8);
+
+    memcpy(srh->segments, segments->segments, (segments->seg_size)*sizeof(struct in6_addr));
+}
+EXPORT_SYMBOL(seg6_build_tmpl_srh);
+
+/*
+ * Push SRH in matching forwarded packets
+ */
 int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 {
     struct ipv6hdr *hdr;
@@ -177,12 +200,12 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 
     skb = *skb_in;
     hdr = ipv6_hdr(skb);
-    segments = seg6_get_random_segments(net, &hdr->daddr);
+    segments = seg6_get_segments(net, &hdr->daddr);
 
     if (segments == NULL)
         return 0;
 
-    srhlen = 8 + 16*(segments->seg_size-1);
+    srhlen = 8 + 16*(segments->seg_size);
 
     oldskb = skb;
     skb = skb_copy_expand(skb, 0, srhlen, GFP_ATOMIC);
@@ -197,10 +220,10 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
     hdr->nexthdr = NEXTHDR_ROUTING;
     hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
-    srh->hdrlen = (segments->seg_size - 1) << 1;
+    srh->hdrlen = (segments->seg_size) << 1;
     srh->type = 4;
     srh->next_segment = 0;
-    srh->last_segment = (segments->seg_size - 2) << 1;
+    srh->last_segment = (segments->seg_size - 1) << 1;
     srh->f1 = 0;
     srh->f2 = 0;
     srh->f3 = 0;
@@ -208,6 +231,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
         sr_set_flags(srh, 0x8);
 
     memcpy(srh->segments, &segments->segments[1], (segments->seg_size - 1)*sizeof(struct in6_addr));
+    srh->segments[segments->seg_size - 1] = hdr->daddr;
 
     hdr->daddr = segments->segments[0];
 
