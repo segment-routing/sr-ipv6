@@ -386,6 +386,10 @@ looped_back:
     /* cleanup */
 
     if (cleanup) {
+        if (skb_is_nonlinear(skb)) {
+            printk(KERN_DEBUG "SR6: ipv6_srh_rcv: skb is nonlinear while cleaning up, skipping cleanup\n");
+            goto skip_cleanup;
+        }
         nh = hdr->nexthdr;
         srhlen = (hdr->hdrlen + 1) << 3;
         memmove(hdr, (void *)hdr + srhlen, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr) + srhlen));
@@ -394,6 +398,7 @@ looped_back:
         ipv6_hdr(skb)->payload_len = htons(skb->len); /* XXX it seems that at this stage, skb->len does not include ipv6hdr */
     }
 
+skip_cleanup:
     skb_dst_drop(skb);
     ip6_route_input(skb);
     if (skb_dst(skb)->error) {
