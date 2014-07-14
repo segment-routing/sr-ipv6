@@ -174,7 +174,7 @@ EXPORT_SYMBOL(seg6_get_segments);
 void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 {
     srh->hdrlen = (segments->seg_size) << 1;
-    srh->type = 4;
+    srh->type = IPV6_SRCRT_TYPE_4;
     srh->next_segment = 0;
     srh->last_segment = (segments->seg_size - 1) << 1;
     srh->f1 = 0;
@@ -221,7 +221,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
     hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
     srh->hdrlen = (segments->seg_size) << 1;
-    srh->type = 4;
+    srh->type = IPV6_SRCRT_TYPE_4;
     srh->next_segment = 0;
     srh->last_segment = (segments->seg_size - 1) << 1;
     srh->f1 = 0;

@@ -406,6 +406,9 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 
 				break;
 #endif
+            case IPV6_SRCRT_TYPE_4:
+                opt->srcrt_srh = 1;
+                break;
 			default:
 				goto sticky_done;
 			}

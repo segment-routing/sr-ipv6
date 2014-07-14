@@ -459,7 +459,7 @@ static int ipv6_rthdr_rcv(struct sk_buff *skb)
 	hdr = (struct ipv6_rt_hdr *)skb_transport_header(skb);
 
     /* XXX segment routing */
-    if (hdr->type == 4)
+    if (hdr->type == IPV6_SRCRT_TYPE_4)
         return ipv6_srh_rcv(skb);
 
 	if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr) ||
