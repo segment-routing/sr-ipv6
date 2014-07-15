@@ -386,16 +386,14 @@ looped_back:
     /* cleanup */
 
     if (cleanup) {
-        if (skb_is_nonlinear(skb)) {
-            printk(KERN_DEBUG "SR6: ipv6_srh_rcv: skb is nonlinear while cleaning up, skipping cleanup\n");
-            goto skip_cleanup;
-        }
         nh = hdr->nexthdr;
         srhlen = (hdr->hdrlen + 1) << 3;
-        memmove(hdr, (void *)hdr + srhlen, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr) + srhlen));
-        ipv6_hdr(skb)->nexthdr = nh; /* XXX we consider that SRH is right after IPv6 header */
-        skb_trim(skb, skb->len - srhlen);
-        ipv6_hdr(skb)->payload_len = htons(skb->len); /* XXX it seems that at this stage, skb->len does not include ipv6hdr */
+        /* we need to move data from top to bottom to avoid nonlinear skb issues with TSO/GSO */
+        memmove(skb_network_header(skb) + srhlen, skb_network_header(skb), (unsigned char *)hdr - skb_network_header(skb));
+        skb_pull(skb, srhlen);
+        skb->network_header += srhlen;
+        ipv6_hdr(skb)->nexthdr = nh;
+        ipv6_hdr(skb)->payload_len = htons(skb->len);
     }
 
 skip_cleanup:
