@@ -35,7 +35,7 @@ struct in6_ifreq {
 #define IPV6_SRCRT_STRICT	0x01	/* Deprecated; will be removed */
 #define IPV6_SRCRT_TYPE_0	0	/* Deprecated; will be removed */
 #define IPV6_SRCRT_TYPE_2	2	/* IPv6 type 2 Routing Header	*/
-#define IPV6_SRCRT_TYPE_4   4   /* Segment Routing Header */
+#define IPV6_SRCRT_TYPE_4	4	/* Segment Routing Header */
 
 /*
  *	routing header
@@ -56,49 +56,49 @@ struct ipv6_rt_hdr {
  * SRH
  */
 struct ipv6_sr_hdr {
-    __u8        nexthdr;
-    __u8        hdrlen;             // 8-octet units
-    __u8        type;
-    __u8        next_segment;
-    __u8        last_segment;
+	__u8		nexthdr;
+	__u8		hdrlen;			 // 8-octet units
+	__u8		type;
+	__u8		next_segment;
+	__u8		last_segment;
 
-    __u8        f1;     // flags + hmac_key_id(high 4)
-    __u8        f2;     // hmac_key_id(low 4) + policy_flags(high 4)
-    __u8        f3;     // policy_flags(low 8)
+	__u8		f1;	 // flags + hmac_key_id(high 4)
+	__u8		f2;	 // hmac_key_id(low 4) + policy_flags(high 4)
+	__u8		f3;	 // policy_flags(low 8)
 
-    struct in6_addr segments[0];
+	struct in6_addr segments[0];
 } __attribute__((packed));
 
 static inline void sr_set_flags(struct ipv6_sr_hdr *hdr, u8 flags)
 {
-    hdr->f1 = ((flags & 0x0f) << 4) | (hdr->f1 & 0x0f);
+	hdr->f1 = ((flags & 0x0f) << 4) | (hdr->f1 & 0x0f);
 }
 
 static inline u8 sr_get_flags(struct ipv6_sr_hdr *hdr)
 {
-    return (hdr->f1 >> 4) & 0x0f;
+	return (hdr->f1 >> 4) & 0x0f;
 }
 
 static inline void sr_set_hmac_key_id(struct ipv6_sr_hdr *hdr, u8 hmackeyid)
 {
-    hdr->f1 = (hdr->f1 & 0xf0) | (hmackeyid >> 4);
-    hdr->f2 = (hmackeyid << 4) | (hdr->f2 & 0x0f);
+	hdr->f1 = (hdr->f1 & 0xf0) | (hmackeyid >> 4);
+	hdr->f2 = (hmackeyid << 4) | (hdr->f2 & 0x0f);
 }
 
 static inline u8 sr_get_hmac_key_id(struct ipv6_sr_hdr *hdr)
 {
-    return (hdr->f1 << 4) | (hdr->f2 >> 4);
+	return (hdr->f1 << 4) | (hdr->f2 >> 4);
 }
 
 static inline void sr_set_policy_flags(struct ipv6_sr_hdr *hdr, u16 pflags)
 {
-    hdr->f2 = (hdr->f2 & 0xf0) | ((pflags >> 8) & 0x0f);
-    hdr->f3 = (u8)(pflags & 0xff);
+	hdr->f2 = (hdr->f2 & 0xf0) | ((pflags >> 8) & 0x0f);
+	hdr->f3 = (u8)(pflags & 0xff);
 }
 
 static inline u16 sr_get_policy_flags(struct ipv6_sr_hdr *hdr)
 {
-    return ((hdr->f2 & 0x0f) << 8) | hdr->f3;
+	return ((hdr->f2 & 0x0f) << 8) | hdr->f3;
 }
 
 struct ipv6_opt_hdr {

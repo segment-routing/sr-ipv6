@@ -11,53 +11,53 @@
 #define seg6_addrto64(addr) ((u64)((u64)(addr)->s6_addr[0] << 56 | (u64)(addr)->s6_addr[1] << 48 | (u64)(addr)->s6_addr[2] << 40 | (u64)(addr)->s6_addr[3] << 32 | (addr)->s6_addr[12] << 24 | (addr)->s6_addr[13] << 16 | (addr)->s6_addr[14] << 8 | (addr)->s6_addr[15]))
 #define seg6_hashfn(dst) hash_64(seg6_addrto64(dst), 12)
 
-#define SEG6NEWPOL      0x0001
-#define SEG6ADDSEG      0x0002
-#define SEG6FLUSH       0x0004
-#define SEG6DUMP        0x0005
-#define SEG6DELSEG      0x0006
+#define SEG6NEWPOL	0x0001
+#define SEG6ADDSEG	0x0002
+#define SEG6FLUSH	0x0004
+#define SEG6DUMP	0x0005
+#define SEG6DELSEG	0x0006
 
 struct seg6_list {
-    u16 id;
-    struct in6_addr *segments;
-    int seg_size;
-    int cleanup;
+	u16 id;
+	struct in6_addr *segments;
+	int seg_size;
+	int cleanup;
 
-    struct seg6_list *next;
+	struct seg6_list *next;
 };
 
 struct seg6_info {
-    struct in6_addr dst;
-    int dst_len;
+	struct in6_addr dst;
+	int dst_len;
 
-    struct seg6_list *list;
-    int list_size;
+	struct seg6_list *list;
+	int list_size;
 
-    struct hlist_node seg_chain;
+	struct hlist_node seg_chain;
 };
 
 struct seg6_newpol {
-    struct in6_addr dst;
-    int dst_len;
+	struct in6_addr dst;
+	int dst_len;
 };
 
 struct seg6_addseg {
-    struct in6_addr dst;
-    int dst_len;
-    u16 id;
-    int cleanup;
-    struct in6_addr segment;
+	struct in6_addr dst;
+	int dst_len;
+	u16 id;
+	int cleanup;
+	struct in6_addr segment;
 };
 
 struct seg6_delseg {
-    struct in6_addr dst;
-    int dst_len;
-    u16 id;
+	struct in6_addr dst;
+	int dst_len;
+	u16 id;
 };
 
 struct seg6_msg {
-    int msg;
-    void *data;
+	int msg;
+	void *data;
 };
 
 extern int sr_hmac_sha1(u8 *key, u8 ksize, struct sk_buff *skb, u32 *output);

@@ -1961,10 +1961,10 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 {
 	struct fib6_config cfg;
 	struct in6_rtmsg rtmsg;
-    struct seg6_newpol s6newpol;
-    struct seg6_addseg s6addseg;
-    struct seg6_delseg s6delseg;
-    struct seg6_msg s6msg;
+	struct seg6_newpol s6newpol;
+	struct seg6_addseg s6addseg;
+	struct seg6_delseg s6delseg;
+	struct seg6_msg s6msg;
 	int err;
 
 	switch(cmd) {
@@ -1993,43 +1993,43 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		rtnl_unlock();
 
 		return err;
-    case SIOCSETSG:
-        if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
-            return -EPERM;
+	case SIOCSETSG:
+		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
+			return -EPERM;
 
-        err = copy_from_user(&s6msg, arg, sizeof(struct seg6_msg));
-        if (err)
-            return -EFAULT;
+		err = copy_from_user(&s6msg, arg, sizeof(struct seg6_msg));
+		if (err)
+			return -EFAULT;
 
-        switch(s6msg.msg) {
-        case SEG6NEWPOL:
-            err = copy_from_user(&s6newpol, s6msg.data, sizeof(struct seg6_newpol));
-            if (err)
-                return -EFAULT;
+		switch(s6msg.msg) {
+		case SEG6NEWPOL:
+			err = copy_from_user(&s6newpol, s6msg.data, sizeof(struct seg6_newpol));
+			if (err)
+				return -EFAULT;
 
-            err = seg6_create_pol(net, &s6newpol);
-            return err;
-        case SEG6ADDSEG:
-            err = copy_from_user(&s6addseg, s6msg.data, sizeof(struct seg6_addseg));
-            if (err)
-                return -EFAULT;
+			err = seg6_create_pol(net, &s6newpol);
+			return err;
+		case SEG6ADDSEG:
+			err = copy_from_user(&s6addseg, s6msg.data, sizeof(struct seg6_addseg));
+			if (err)
+				return -EFAULT;
 
-            err = seg6_add_segment(net, &s6addseg);
-            return err;
-        case SEG6DELSEG:
-            err = copy_from_user(&s6delseg, s6msg.data, sizeof(struct seg6_delseg));
-            if (err)
-                return -EFAULT;
+			err = seg6_add_segment(net, &s6addseg);
+			return err;
+		case SEG6DELSEG:
+			err = copy_from_user(&s6delseg, s6msg.data, sizeof(struct seg6_delseg));
+			if (err)
+				return -EFAULT;
 
-            err = seg6_del_segment(net, &s6delseg);
-            return err;
-        case SEG6FLUSH:
-            err = seg6_flush_segments(net);
-            return err;
-        case SEG6DUMP:
-            err = seg6_dump_segments(net);
-            return err;
-        }
+			err = seg6_del_segment(net, &s6delseg);
+			return err;
+		case SEG6FLUSH:
+			err = seg6_flush_segments(net);
+			return err;
+		case SEG6DUMP:
+			err = seg6_dump_segments(net);
+			return err;
+		}
 	}
 
 	return -EINVAL;
@@ -3101,27 +3101,27 @@ static struct notifier_block ip6_route_dev_notifier = {
 
 static int __net_init seg6_init(struct net *net)
 {
-    unsigned int i;
+	unsigned int i;
 
-    net->ipv6.seg6_hash = kzalloc(4096*sizeof(struct hlist_head), GFP_KERNEL);
-    if (!net->ipv6.seg6_hash)
-        return 1;
+	net->ipv6.seg6_hash = kzalloc(4096*sizeof(struct hlist_head), GFP_KERNEL);
+	if (!net->ipv6.seg6_hash)
+		return 1;
 
-    for (i = 0; i < 4096; i++)
-        INIT_HLIST_HEAD(&net->ipv6.seg6_hash[i]);
+	for (i = 0; i < 4096; i++)
+		INIT_HLIST_HEAD(&net->ipv6.seg6_hash[i]);
 
-    return 0;
+	return 0;
 }
 
 static void __net_exit seg6_exit(struct net *net)
 {
-    seg6_flush_segments(net);
-    kfree(net->ipv6.seg6_hash);
+	seg6_flush_segments(net);
+	kfree(net->ipv6.seg6_hash);
 }
 
 static struct pernet_operations ip6_segments_ops = {
-    .init = seg6_init,
-    .exit = seg6_exit,
+	.init = seg6_init,
+	.exit = seg6_exit,
 };
 
 int __init ip6_route_init(void)
@@ -3186,15 +3186,15 @@ int __init ip6_route_init(void)
 	if (ret)
 		goto out_register_late_subsys;
 
-    ret = register_pernet_subsys(&ip6_segments_ops);
-    if (ret)
-        goto out_register_netdevice;
+	ret = register_pernet_subsys(&ip6_segments_ops);
+	if (ret)
+		goto out_register_netdevice;
 
 out:
 	return ret;
 
 out_register_netdevice:
-    unregister_netdevice_notifier(&ip6_route_dev_notifier);
+	unregister_netdevice_notifier(&ip6_route_dev_notifier);
 out_register_late_subsys:
 	unregister_pernet_subsys(&ip6_route_net_late_ops);
 fib6_rules_init:
@@ -3216,7 +3216,7 @@ out_kmem_cache:
 
 void ip6_route_cleanup(void)
 {
-    unregister_pernet_subsys(&ip6_segments_ops);
+	unregister_pernet_subsys(&ip6_segments_ops);
 	unregister_netdevice_notifier(&ip6_route_dev_notifier);
 	unregister_pernet_subsys(&ip6_route_net_late_ops);
 	fib6_rules_cleanup();

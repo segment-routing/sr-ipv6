@@ -73,15 +73,15 @@ int __ip6_local_out(struct sk_buff *skb)
 int ip6_local_out(struct sk_buff *skb)
 {
 	int err;
-    struct net *net = dev_net(skb_dst(skb)->dev);
+	struct net *net = dev_net(skb_dst(skb)->dev);
 
 	err = __ip6_local_out(skb);
 	if (likely(err == 1)) {
-        if (seg6_process_skb(net, &skb))
-            ip6_route_me_harder(skb);
+		if (seg6_process_skb(net, &skb))
+			ip6_route_me_harder(skb);
 
 		err = dst_output(skb);
-    }
+	}
 
 	return err;
 }
@@ -248,7 +248,6 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 	skb->mark = sk->sk_mark;
 
 	mtu = dst_mtu(dst);
-
 	if ((skb->len <= mtu) || skb->local_df || skb_is_gso(skb)) {
 		IP6_UPD_PO_STATS(net, ip6_dst_idev(skb_dst(skb)),
 			      IPSTATS_MIB_OUT, skb->len);

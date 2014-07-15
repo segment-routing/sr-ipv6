@@ -43,8 +43,6 @@
 #define NEXTHDR_DEST		60	/* Destination options header. */
 #define NEXTHDR_MOBILITY	135	/* Mobility header. */
 
-#define NEXTHDR_SRH         253 /* SR header, set to experimental value. Change wrt IANA assignment */
-
 #define NEXTHDR_MAX		255
 
 
@@ -213,7 +211,7 @@ struct ipv6_txoptions {
 	struct ipv6_opt_hdr	*hopopt;
 	struct ipv6_opt_hdr	*dst0opt;
 	struct ipv6_rt_hdr	*srcrt;	/* Routing Header */
-    int srcrt_srh;
+	int srcrt_srh;
 	struct ipv6_opt_hdr	*dst1opt;
 
 	/* Option buffer, as read by IPV6_PKTOPTIONS, starts here. */
