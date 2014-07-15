@@ -193,7 +193,7 @@ EXPORT_SYMBOL(seg6_build_tmpl_srh);
 int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 {
 	struct ipv6hdr *hdr;
-	struct sk_buff *skb, *oldskb;
+	struct sk_buff *skb;
 	struct seg6_list *segments;
 	int srhlen;
 	struct ipv6_sr_hdr *srh;
@@ -207,15 +207,17 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 
 	srhlen = 8 + 16*(segments->seg_size);
 
-	oldskb = skb;
-	skb = skb_copy_expand(skb, 0, srhlen, GFP_ATOMIC);
-	consume_skb(oldskb);
-	skb_put(skb, srhlen);
+	if (pskb_expand_head(skb, srhlen, 0, GFP_ATOMIC)) {
+		printk(KERN_DEBUG "SR6: seg6_process_skb: cannot expand head\n");
+		return 0;
+	}
 
+	memmove(skb_network_header(skb) - srhlen, skb_network_header(skb), sizeof(struct ipv6hdr));
+	skb_push(skb, srhlen);
+	skb->network_header -= srhlen;
 	hdr = ipv6_hdr(skb);
 	srh = (void *)hdr + sizeof(struct ipv6hdr);
 
-	memmove((void *)srh + srhlen, srh, skb->len - (skb_network_offset(skb) + sizeof(struct ipv6hdr) + srhlen));
 	srh->nexthdr = hdr->nexthdr;
 	hdr->nexthdr = NEXTHDR_ROUTING;
 	hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
