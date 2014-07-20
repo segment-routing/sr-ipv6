@@ -22,6 +22,7 @@ struct seg6_list {
 	struct in6_addr *segments;
 	int seg_size;
 	int cleanup;
+	u8 hmackeyid;
 
 	struct seg6_list *next;
 };
@@ -46,6 +47,7 @@ struct seg6_addseg {
 	int dst_len;
 	u16 id;
 	int cleanup;
+	u8 hmackeyid;
 	struct in6_addr segment;
 };
 
@@ -60,7 +62,7 @@ struct seg6_msg {
 	void *data;
 };
 
-extern int sr_hmac_sha1(u8 *key, u8 ksize, struct sk_buff *skb, u32 *output);
+extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
 extern int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg);
 extern int seg6_del_segment(struct net *net, struct seg6_delseg *segmsg);
 extern int seg6_dump_segments(struct net *net);
@@ -70,5 +72,7 @@ extern int seg6_process_skb(struct net *net, struct sk_buff **skb);
 extern struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst);
 extern void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh);
 
+static char seg6_hmac_key_default[] = "YELLOW SUBMARINE";
+#define SEG6_HMAC(srh) ((srh)->segments + (((srh)->last_segment + 2) >> 1))
 
 #endif

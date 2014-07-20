@@ -303,7 +303,6 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	struct ipv6_sr_hdr *hdr;
 	struct net *net = dev_net(skb->dev);
 	int inc = 0, cleanup = 0, topid = 0;
-	char hmac_key_default[] = "YELLOW SUBMARINE";
 	u32 hmac_output[5];
 	u8 *hmac_input;
 	u8 hmac_key_id;
@@ -331,7 +330,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 
 		memset(hmac_output, 0, 20);
 
-		if (sr_hmac_sha1(hmac_key_default, strlen(hmac_key_default), skb, hmac_output)) {
+		if (sr_hmac_sha1(seg6_hmac_key_default, strlen(seg6_hmac_key_default), hdr, &ipv6_hdr(skb)->saddr, hmac_output)) {
 			kfree_skb(skb);
 			return -1;
 		}
@@ -814,6 +813,9 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 
 		sr_phdr->segments[hops - 1] = **addr_p;
 		*addr_p = sr_ihdr->segments;
+
+		if (sr_get_hmac_key_id(sr_phdr))
+			sr_hmac_sha1(seg6_hmac_key_default, strlen(seg6_hmac_key_default), sr_phdr, &ipv6_hdr(skb)->saddr, (u32*)SEG6_HMAC(sr_phdr));
 
 		sr_phdr->nexthdr = *proto;
 		*proto = NEXTHDR_ROUTING;

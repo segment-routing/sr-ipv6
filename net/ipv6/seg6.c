@@ -67,9 +67,8 @@ static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
 	memset(workspace, 0, sizeof(workspace));
 }
 
-int sr_hmac_sha1(u8 *key, u8 ksize, struct sk_buff *skb, u32 *output)
+int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output)
 {
-	struct ipv6_sr_hdr *hdr;
 	unsigned int plen;
 	struct in6_addr *addr;
 	int i;
@@ -82,8 +81,6 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct sk_buff *skb, u32 *output)
 	if (!ksize)
 		return -EINVAL;
 
-	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
-
 	plen = 16 + 1 + 1 + 1 + (hdr->last_segment+2)*8;
 
 	u8 inner_msg[64+plen];
@@ -91,15 +88,15 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct sk_buff *skb, u32 *output)
 
 	memset(pptr, 0, plen);
 
-	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with SA %pI6\n", &ipv6_hdr(skb)->saddr);
+	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with SA %pI6\n", saddr);
 	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with last_segment %u\n", hdr->last_segment);
-	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with clean up flag %u\n", sr_get_flags(hdr) & 0x02);
+	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with clean up flag %u\n", sr_get_flags(hdr) & 0x8);
 	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with hmac key id %u\n", sr_get_hmac_key_id(hdr));
 
-	memcpy(pptr, ipv6_hdr(skb)->saddr.s6_addr, 16);
+	memcpy(pptr, saddr->s6_addr, 16);
 	pptr += 16;
 	*pptr++ = hdr->last_segment;
-	*pptr++ = sr_get_flags(hdr) & 0x02;
+	*pptr++ = sr_get_flags(hdr) & 0x8;
 	*pptr++ = sr_get_hmac_key_id(hdr);
 
 	for (i = 0; i < hdr->last_segment + 2; i += 2) {
@@ -173,7 +170,7 @@ EXPORT_SYMBOL(seg6_get_segments);
  */
 void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 {
-	srh->hdrlen = (segments->seg_size) << 1;
+	srh->hdrlen = ((segments->seg_size) << 1) + (segments->hmackeyid ? 4 : 0);
 	srh->type = IPV6_SRCRT_TYPE_4;
 	srh->next_segment = 0;
 	srh->last_segment = (segments->seg_size - 1) << 1;
@@ -182,6 +179,8 @@ void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 	srh->f3 = 0;
 	if (segments->cleanup)
 		sr_set_flags(srh, 0x8);
+	if (segments->hmackeyid)
+		sr_set_hmac_key_id(srh, segments->hmackeyid);
 
 	memcpy(srh->segments, segments->segments, (segments->seg_size)*sizeof(struct in6_addr));
 }
@@ -205,7 +204,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	if (segments == NULL)
 		return 0;
 
-	srhlen = 8 + 16*(segments->seg_size);
+	srhlen = 8 + 16*(segments->seg_size) + (segments->hmackeyid ? 32 : 0);
 
 	if (pskb_expand_head(skb, srhlen, 0, GFP_ATOMIC)) {
 		printk(KERN_DEBUG "SR6: seg6_process_skb: cannot expand head\n");
@@ -222,7 +221,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	hdr->nexthdr = NEXTHDR_ROUTING;
 	hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
-	srh->hdrlen = (segments->seg_size) << 1;
+	srh->hdrlen = ((segments->seg_size) << 1) + (segments->hmackeyid ? 4 : 0);
 	srh->type = IPV6_SRCRT_TYPE_4;
 	srh->next_segment = 0;
 	srh->last_segment = (segments->seg_size - 1) << 1;
@@ -236,6 +235,11 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	srh->segments[segments->seg_size - 1] = hdr->daddr;
 
 	hdr->daddr = segments->segments[0];
+
+	if (segments->hmackeyid) {
+		sr_set_hmac_key_id(srh, segments->hmackeyid);
+		sr_hmac_sha1(seg6_hmac_key_default, strlen(seg6_hmac_key_default), srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
+	}
 
 	*skb_in = skb;
 
@@ -403,6 +407,7 @@ int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg)
 		tmp->id = segmsg->id;
 		tmp->seg_size = 1;
 		tmp->cleanup = segmsg->cleanup;
+		tmp->hmackeyid = segmsg->hmackeyid;
 		tmp->next = NULL;
 		tmp->segments = kmalloc(sizeof(struct in6_addr), GFP_KERNEL);
 		if (!tmp->segments) {
@@ -432,6 +437,7 @@ int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg)
 		tmp->seg_size = 1;
 		tmp->next = info->list;
 		tmp->cleanup = segmsg->cleanup;
+		tmp->hmackeyid = segmsg->hmackeyid;
 		tmp->segments = kmalloc(sizeof(struct in6_addr), GFP_KERNEL);
 		if (!tmp->segments) {
 			kfree(tmp);
