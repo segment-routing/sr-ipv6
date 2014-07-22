@@ -29,6 +29,8 @@
 #include <crypto/sha.h>
 #include <net/seg6.h>
 
+char seg6_hmac_key[SEG6_HMAC_MAX_SIZE] = "secret";
+
 static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
 {
 	u32 workspace[SHA_WORKSPACE_WORDS];
@@ -81,6 +83,8 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *sa
 	if (!ksize)
 		return -EINVAL;
 
+	memset((char*)output, 0, 32);
+
 	plen = 16 + 1 + 1 + 1 + (hdr->last_segment+2)*8;
 
 	u8 inner_msg[64+plen];
@@ -96,7 +100,7 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *sa
 	memcpy(pptr, saddr->s6_addr, 16);
 	pptr += 16;
 	*pptr++ = hdr->last_segment;
-	*pptr++ = sr_get_flags(hdr) & 0x8;
+	*pptr++ = (sr_get_flags(hdr) & 0x8) << 7;
 	*pptr++ = sr_get_hmac_key_id(hdr);
 
 	for (i = 0; i < hdr->last_segment + 2; i += 2) {
@@ -238,7 +242,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 
 	if (segments->hmackeyid) {
 		sr_set_hmac_key_id(srh, segments->hmackeyid);
-		sr_hmac_sha1(seg6_hmac_key_default, strlen(seg6_hmac_key_default), srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
+		sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
 	}
 
 	*skb_in = skb;
@@ -463,3 +467,19 @@ int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg)
 	return 0;
 }
 EXPORT_SYMBOL(seg6_add_segment);
+
+static struct ctl_table seg6_table[] = {
+	{
+		.procname 	= "hmac_key",
+		.data 		= seg6_hmac_key,
+		.maxlen		= SEG6_HMAC_MAX_SIZE,
+		.mode		= 0644,
+		.proc_handler	= proc_dostring,
+	},
+	{ }
+};
+
+void __net_init seg6_init_sysctl(void)
+{
+	register_net_sysctl(&init_net, "net/seg6", seg6_table);
+}

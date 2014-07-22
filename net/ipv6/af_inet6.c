@@ -58,6 +58,7 @@
 #ifdef CONFIG_IPV6_TUNNEL
 #include <net/ip6_tunnel.h>
 #endif
+#include <net/seg6.h>
 
 #include <asm/uaccess.h>
 #include <linux/mroute6.h>
@@ -934,6 +935,7 @@ static int __init inet6_init(void)
 	err = ipv6_sysctl_register();
 	if (err)
 		goto sysctl_fail;
+	seg6_init_sysctl();
 #endif
 out:
 	return err;

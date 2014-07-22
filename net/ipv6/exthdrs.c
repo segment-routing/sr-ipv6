@@ -330,7 +330,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 
 		memset(hmac_output, 0, 20);
 
-		if (sr_hmac_sha1(seg6_hmac_key_default, strlen(seg6_hmac_key_default), hdr, &ipv6_hdr(skb)->saddr, hmac_output)) {
+		if (sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), hdr, &ipv6_hdr(skb)->saddr, hmac_output)) {
 			kfree_skb(skb);
 			return -1;
 		}
@@ -815,7 +815,7 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 		*addr_p = sr_ihdr->segments;
 
 		if (sr_get_hmac_key_id(sr_phdr))
-			sr_hmac_sha1(seg6_hmac_key_default, strlen(seg6_hmac_key_default), sr_phdr, &ipv6_hdr(skb)->saddr, (u32*)SEG6_HMAC(sr_phdr));
+			sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), sr_phdr, &ipv6_hdr(skb)->saddr, (u32*)SEG6_HMAC(sr_phdr));
 
 		sr_phdr->nexthdr = *proto;
 		*proto = NEXTHDR_ROUTING;
