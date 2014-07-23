@@ -335,7 +335,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 			return -1;
 		}
 
-		hmac_input = (u8*)(hdr->segments + ((hdr->last_segment + 2) >> 1));
+		hmac_input = (u8*)SEG6_HMAC(hdr);
 
 		if (memcmp(hmac_output, hmac_input, 20) != 0) {
 			printk(KERN_DEBUG "SR-IPv6: HMAC comparison failed, dropping packet\n");
@@ -809,7 +809,7 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 		memcpy(sr_phdr, sr_ihdr, sizeof(struct ipv6_sr_hdr));
 
 		hops = (sr_ihdr->last_segment + 2) >> 1;
-		memcpy(sr_phdr->segments, sr_ihdr->segments + 1, (hops - 1) * sizeof(struct in6_addr));
+		memcpy(sr_phdr->segments, sr_ihdr->segments + 1, (hops) * sizeof(struct in6_addr));
 
 		sr_phdr->segments[hops - 1] = **addr_p;
 		*addr_p = sr_ihdr->segments;

@@ -260,7 +260,7 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	/* TODO add sysctl check */
 	segments = seg6_get_segments(sock_net(sk), &np->daddr);
 	if (!np->opt && segments) {
-		tot_len = CMSG_ALIGN(8 + 16*(segments->seg_size) + (segments->hmackeyid ? 32 : 0));
+		tot_len = CMSG_ALIGN(8 + 16*(segments->seg_size + 1) + (segments->hmackeyid ? 32 : 0));
 		tot_len += sizeof(*opt2);
 		opt2 = sock_kmalloc(sk, tot_len, GFP_ATOMIC);
 		if (!opt2) {
@@ -1249,7 +1249,7 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	/* TODO sysctl */
 	segments = seg6_get_segments(sock_net(newsk), &newnp->daddr);
 	if (!np->opt && segments) {
-		tot_len = CMSG_ALIGN(8 + 16*(segments->seg_size) + (segments->hmackeyid ? 32 : 0));
+		tot_len = CMSG_ALIGN(8 + 16*(segments->seg_size + 1) + (segments->hmackeyid ? 32 : 0));
 		tot_len += sizeof(*opt2);
 		opt2 = sock_kmalloc(newsk, tot_len, GFP_ATOMIC);
 /*		if (!opt2) {

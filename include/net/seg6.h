@@ -74,7 +74,7 @@ extern void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *
 extern void seg6_init_sysctl(void);
 
 extern char seg6_hmac_key[];
-#define SEG6_HMAC(srh) ((srh)->segments + (((srh)->last_segment + 2) >> 1))
+#define SEG6_HMAC(srh) ((srh)->segments + (((srh)->last_segment + 4) >> 1))
 #define SEG6_HMAC_MAX_SIZE	64
 
 #endif

@@ -92,11 +92,6 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *sa
 
 	memset(pptr, 0, plen);
 
-	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with SA %pI6\n", saddr);
-	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with last_segment %u\n", hdr->last_segment);
-	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with clean up flag %u\n", sr_get_flags(hdr) & 0x8);
-	printk(KERN_DEBUG "SR-IPv6: sr_hmac_sha1: encoding with hmac key id %u\n", sr_get_hmac_key_id(hdr));
-
 	memcpy(pptr, saddr->s6_addr, 16);
 	pptr += 16;
 	*pptr++ = hdr->last_segment;
@@ -174,7 +169,7 @@ EXPORT_SYMBOL(seg6_get_segments);
  */
 void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 {
-	srh->hdrlen = ((segments->seg_size) << 1) + (segments->hmackeyid ? 4 : 0);
+	srh->hdrlen = ((segments->seg_size + 1) << 1) + (segments->hmackeyid ? 4 : 0);
 	srh->type = IPV6_SRCRT_TYPE_4;
 	srh->next_segment = 0;
 	srh->last_segment = (segments->seg_size - 1) << 1;
@@ -187,6 +182,7 @@ void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 		sr_set_hmac_key_id(srh, segments->hmackeyid);
 
 	memcpy(srh->segments, segments->segments, (segments->seg_size)*sizeof(struct in6_addr));
+	srh->segments[segments->seg_size] = segments->segments[0];
 }
 EXPORT_SYMBOL(seg6_build_tmpl_srh);
 
@@ -208,7 +204,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	if (segments == NULL)
 		return 0;
 
-	srhlen = 8 + 16*(segments->seg_size) + (segments->hmackeyid ? 32 : 0);
+	srhlen = 8 + 16*(segments->seg_size + 1) + (segments->hmackeyid ? 32 : 0);
 
 	if (pskb_expand_head(skb, srhlen, 0, GFP_ATOMIC)) {
 		printk(KERN_DEBUG "SR6: seg6_process_skb: cannot expand head\n");
@@ -225,7 +221,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	hdr->nexthdr = NEXTHDR_ROUTING;
 	hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
-	srh->hdrlen = ((segments->seg_size) << 1) + (segments->hmackeyid ? 4 : 0);
+	srh->hdrlen = ((segments->seg_size + 1) << 1) + (segments->hmackeyid ? 4 : 0);
 	srh->type = IPV6_SRCRT_TYPE_4;
 	srh->next_segment = 0;
 	srh->last_segment = (segments->seg_size - 1) << 1;
@@ -237,6 +233,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 
 	memcpy(srh->segments, &segments->segments[1], (segments->seg_size - 1)*sizeof(struct in6_addr));
 	srh->segments[segments->seg_size - 1] = hdr->daddr;
+	srh->segments[segments->seg_size] = segments->segments[0];
 
 	hdr->daddr = segments->segments[0];
 
