@@ -330,7 +330,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 
 		memset(hmac_output, 0, 20);
 
-		if (sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), hdr, &ipv6_hdr(skb)->saddr, hmac_output)) {
+		if (sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), hdr, &ipv6_hdr(skb)->saddr, hmac_output, 0)) {
 			kfree_skb(skb);
 			return -1;
 		}
@@ -395,7 +395,6 @@ looped_back:
 		ipv6_hdr(skb)->payload_len = htons(skb->len);
 	}
 
-skip_cleanup:
 	skb_dst_drop(skb);
 	ip6_route_input(skb);
 	if (skb_dst(skb)->error) {
@@ -796,7 +795,7 @@ int ipv6_parse_hopopts(struct sk_buff *skb)
 
 static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 			    struct ipv6_rt_hdr *opt,
-			    struct in6_addr **addr_p, int srh)
+			    struct in6_addr **addr_p, int srh, struct in6_addr *saddr)
 {
 	struct rt0_hdr *phdr, *ihdr;
 	struct ipv6_sr_hdr *sr_phdr, *sr_ihdr;
@@ -809,13 +808,14 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 		memcpy(sr_phdr, sr_ihdr, sizeof(struct ipv6_sr_hdr));
 
 		hops = (sr_ihdr->last_segment + 2) >> 1;
-		memcpy(sr_phdr->segments, sr_ihdr->segments + 1, (hops) * sizeof(struct in6_addr));
+		memcpy(sr_phdr->segments, sr_ihdr->segments + 1, (hops - 1) * sizeof(struct in6_addr));
 
 		sr_phdr->segments[hops - 1] = **addr_p;
+		sr_phdr->segments[hops] = sr_ihdr->segments[0];
 		*addr_p = sr_ihdr->segments;
 
 		if (sr_get_hmac_key_id(sr_phdr))
-			sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), sr_phdr, &ipv6_hdr(skb)->saddr, (u32*)SEG6_HMAC(sr_phdr));
+			sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), sr_phdr, saddr, (u32*)SEG6_HMAC(sr_phdr), 1);
 
 		sr_phdr->nexthdr = *proto;
 		*proto = NEXTHDR_ROUTING;
@@ -850,10 +850,10 @@ static void ipv6_push_exthdr(struct sk_buff *skb, u8 *proto, u8 type, struct ipv
 
 void ipv6_push_nfrag_opts(struct sk_buff *skb, struct ipv6_txoptions *opt,
 			  u8 *proto,
-			  struct in6_addr **daddr)
+			  struct in6_addr **daddr, struct in6_addr *saddr)
 {
 	if (opt->srcrt) {
-		ipv6_push_rthdr(skb, proto, opt->srcrt, daddr, opt->srcrt_srh);
+		ipv6_push_rthdr(skb, proto, opt->srcrt, daddr, opt->srcrt_srh, saddr);
 		/*
 		 * IPV6_RTHDRDSTOPTS is ignored
 		 * unless IPV6_RTHDR is set (RFC3542).

@@ -69,7 +69,7 @@ static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
 	memset(workspace, 0, sizeof(workspace));
 }
 
-int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output)
+int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output, int zero)
 {
 	unsigned int plen;
 	struct in6_addr *addr;
@@ -83,7 +83,8 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *sa
 	if (!ksize)
 		return -EINVAL;
 
-	memset((char*)output, 0, 32);
+	if (zero)
+		memset((char*)output, 0, 32);
 
 	plen = 16 + 1 + 1 + 1 + (hdr->last_segment+2)*8;
 
@@ -169,7 +170,7 @@ EXPORT_SYMBOL(seg6_get_segments);
  */
 void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 {
-	srh->hdrlen = ((segments->seg_size + 1) << 1) + (segments->hmackeyid ? 4 : 0);
+	srh->hdrlen = SEG6_HDR_LEN(segments);
 	srh->type = IPV6_SRCRT_TYPE_4;
 	srh->next_segment = 0;
 	srh->last_segment = (segments->seg_size - 1) << 1;
@@ -204,7 +205,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	if (segments == NULL)
 		return 0;
 
-	srhlen = 8 + 16*(segments->seg_size + 1) + (segments->hmackeyid ? 32 : 0);
+	srhlen = SEG6_HDR_BYTELEN(segments);
 
 	if (pskb_expand_head(skb, srhlen, 0, GFP_ATOMIC)) {
 		printk(KERN_DEBUG "SR6: seg6_process_skb: cannot expand head\n");
@@ -239,7 +240,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 
 	if (segments->hmackeyid) {
 		sr_set_hmac_key_id(srh, segments->hmackeyid);
-		sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
+		sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), srh, &hdr->saddr, (u32*)SEG6_HMAC(srh), 1);
 	}
 
 	*skb_in = skb;

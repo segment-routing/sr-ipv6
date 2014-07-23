@@ -721,7 +721,7 @@ static netdev_tx_t ip6gre_xmit2(struct sk_buff *skb,
 	proto = NEXTHDR_GRE;
 	if (encap_limit >= 0) {
 		init_tel_txopt(&opt, encap_limit);
-		ipv6_push_nfrag_opts(skb, &opt.ops, &proto, NULL);
+		ipv6_push_nfrag_opts(skb, &opt.ops, &proto, NULL, NULL);
 	}
 
 	skb_push(skb, gre_hlen);

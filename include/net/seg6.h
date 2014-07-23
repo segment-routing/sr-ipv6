@@ -62,7 +62,7 @@ struct seg6_msg {
 	void *data;
 };
 
-extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
+extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output, int zero);
 extern int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg);
 extern int seg6_del_segment(struct net *net, struct seg6_delseg *segmsg);
 extern int seg6_dump_segments(struct net *net);
@@ -76,5 +76,7 @@ extern void seg6_init_sysctl(void);
 extern char seg6_hmac_key[];
 #define SEG6_HMAC(srh) ((srh)->segments + (((srh)->last_segment + 4) >> 1))
 #define SEG6_HMAC_MAX_SIZE	64
+#define SEG6_HDR_BYTELEN(seglist) (8 + 16*((seglist)->seg_size + 1) + ((seglist)->hmackeyid ? 32 : 0))
+#define SEG6_HDR_LEN(seglist) ((SEG6_HDR_BYTELEN(seglist) >> 3) - 1)
 
 #endif
