@@ -69,7 +69,7 @@ static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
 	memset(workspace, 0, sizeof(workspace));
 }
 
-int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output, int zero)
+int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output)
 {
 	unsigned int plen;
 	struct in6_addr *addr;
@@ -82,9 +82,6 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *sa
 
 	if (!ksize)
 		return -EINVAL;
-
-	if (zero)
-		memset((char*)output, 0, 32);
 
 	plen = 16 + 1 + 1 + 1 + (hdr->last_segment+2)*8;
 
@@ -240,7 +237,8 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 
 	if (segments->hmackeyid) {
 		sr_set_hmac_key_id(srh, segments->hmackeyid);
-		sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), srh, &hdr->saddr, (u32*)SEG6_HMAC(srh), 1);
+		memset(SEG6_HMAC(srh), 0, 32);
+		sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
 	}
 
 	*skb_in = skb;
