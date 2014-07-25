@@ -1961,7 +1961,6 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 {
 	struct fib6_config cfg;
 	struct in6_rtmsg rtmsg;
-	struct seg6_newpol s6newpol;
 	struct seg6_addseg s6addseg;
 	struct seg6_delseg s6delseg;
 	struct seg6_msg s6msg;
@@ -2002,13 +2001,6 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 			return -EFAULT;
 
 		switch(s6msg.msg) {
-		case SEG6NEWPOL:
-			err = copy_from_user(&s6newpol, s6msg.data, sizeof(struct seg6_newpol));
-			if (err)
-				return -EFAULT;
-
-			err = seg6_create_pol(net, &s6newpol);
-			return err;
 		case SEG6ADDSEG:
 			err = copy_from_user(&s6addseg, s6msg.data, sizeof(struct seg6_addseg));
 			if (err)

@@ -11,7 +11,6 @@
 #define seg6_addrto64(addr) ((u64)((u64)(addr)->s6_addr[0] << 56 | (u64)(addr)->s6_addr[1] << 48 | (u64)(addr)->s6_addr[2] << 40 | (u64)(addr)->s6_addr[3] << 32 | (addr)->s6_addr[12] << 24 | (addr)->s6_addr[13] << 16 | (addr)->s6_addr[14] << 8 | (addr)->s6_addr[15]))
 #define seg6_hashfn(dst) hash_64(seg6_addrto64(dst), 12)
 
-#define SEG6NEWPOL	0x0001
 #define SEG6ADDSEG	0x0002
 #define SEG6FLUSH	0x0004
 #define SEG6DUMP	0x0005
@@ -37,18 +36,14 @@ struct seg6_info {
 	struct hlist_node seg_chain;
 };
 
-struct seg6_newpol {
-	struct in6_addr dst;
-	int dst_len;
-};
-
 struct seg6_addseg {
 	struct in6_addr dst;
 	int dst_len;
 	u16 id;
 	int cleanup;
 	u8 hmackeyid;
-	struct in6_addr segment;
+	struct in6_addr __user *segments;
+	int seg_len;
 };
 
 struct seg6_delseg {
@@ -67,7 +62,6 @@ extern int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg);
 extern int seg6_del_segment(struct net *net, struct seg6_delseg *segmsg);
 extern int seg6_dump_segments(struct net *net);
 extern int seg6_flush_segments(struct net *net);
-extern int seg6_create_pol(struct net *net, struct seg6_newpol *npmsg);
 extern int seg6_process_skb(struct net *net, struct sk_buff **skb);
 extern struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst);
 extern void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh);

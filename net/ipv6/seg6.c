@@ -247,30 +247,6 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 }
 EXPORT_SYMBOL(seg6_process_skb);
 
-int seg6_create_pol(struct net *net, struct seg6_newpol *npmsg)
-{
-	struct seg6_info *tmp;
-
-	hlist_for_each_entry_rcu(tmp, &net->ipv6.seg6_hash[seg6_hashfn(&npmsg->dst)], seg_chain) {
-		if (memcmp(tmp->dst.s6_addr, npmsg->dst.s6_addr, 16) == 0 && tmp->dst_len == npmsg->dst_len)
-			return -EEXIST;
-	}
-
-	// no entry, add one
-
-	tmp = kzalloc(sizeof(*tmp), GFP_KERNEL);
-	if (!tmp)
-		return -ENOMEM;
-
-	memcpy(tmp->dst.s6_addr, npmsg->dst.s6_addr, 16);
-	tmp->dst_len = npmsg->dst_len;
-
-	hlist_add_head_rcu(&tmp->seg_chain, &net->ipv6.seg6_hash[seg6_hashfn(&tmp->dst)]);
-
-	return 0;
-}
-EXPORT_SYMBOL(seg6_create_pol);
-
 static void __seg6_flush_segment(struct seg6_info *info)
 {
 	struct seg6_list *list;
@@ -385,8 +361,7 @@ int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg)
 {
 	struct seg6_info *info;
 	struct seg6_list *tmp;
-	struct in6_addr *segments;
-	int found = 0;
+	int found = 0, err;
 
 	hlist_for_each_entry_rcu(info, &net->ipv6.seg6_hash[seg6_hashfn(&segmsg->dst)], seg_chain) {
 		if (memcmp(info->dst.s6_addr, segmsg->dst.s6_addr, 16) == 0 && info->dst_len == segmsg->dst_len) {
@@ -395,71 +370,45 @@ int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg)
 		}
 	}
 
-	if (!found)
-		return -ENOENT;
-
-	// first call to SIOCADDSG after initial SIOCNEWSG
-	if (info->list_size == 0) {
-		info->list = kzalloc(sizeof(struct seg6_list), GFP_KERNEL);
-		if (!info->list)
-			return -ENOMEM;
-		tmp = info->list;
-		tmp->id = segmsg->id;
-		tmp->seg_size = 1;
-		tmp->cleanup = segmsg->cleanup;
-		tmp->hmackeyid = segmsg->hmackeyid;
-		tmp->next = NULL;
-		tmp->segments = kmalloc(sizeof(struct in6_addr), GFP_KERNEL);
-		if (!tmp->segments) {
-			kfree(info->list);
-			return -ENOMEM;
-		}
-		memcpy(tmp->segments[0].s6_addr, segmsg->segment.s6_addr, 16);
-
-		info->list_size++;
-		return 0;
-	}
-
-	found = 0;
-	for (tmp = info->list; tmp; tmp = tmp->next) {
-		if (tmp->id == segmsg->id) {
-			found = 1;
-			break;
-		}
-	}
-
-	// entry for dst exists but id does not exist yet
 	if (!found) {
-		tmp = kzalloc(sizeof(struct seg6_list), GFP_KERNEL);
-		if (!tmp)
+		info = kzalloc(sizeof(*info), GFP_KERNEL);
+		if (!info)
 			return -ENOMEM;
-		tmp->id = segmsg->id;
-		tmp->seg_size = 1;
-		tmp->next = info->list;
-		tmp->cleanup = segmsg->cleanup;
-		tmp->hmackeyid = segmsg->hmackeyid;
-		tmp->segments = kmalloc(sizeof(struct in6_addr), GFP_KERNEL);
-		if (!tmp->segments) {
-			kfree(tmp);
-			return -ENOMEM;
-		}
-		memcpy(tmp->segments[0].s6_addr, segmsg->segment.s6_addr, 16);
 
-		info->list = tmp;
-		info->list_size++;
-		return 0;
+		memcpy(info->dst.s6_addr, segmsg->dst.s6_addr, 16);
+		info->dst_len = segmsg->dst_len;
+
+		hlist_add_head_rcu(&info->seg_chain, &net->ipv6.seg6_hash[seg6_hashfn(&info->dst)]);
+	} else {
+		for (tmp = info->list; tmp; tmp = tmp->next) {
+			if (tmp->id == segmsg->id)
+				return -EEXIST;
+		}
 	}
 
-	// entry for dst exists as well as id
-
-	segments = krealloc(tmp->segments, (tmp->seg_size+1)*sizeof(struct in6_addr), GFP_KERNEL);
-	if (!segments)
+	tmp = kzalloc(sizeof(struct seg6_list), GFP_KERNEL);
+	if (!tmp)
 		return -ENOMEM;
 
-	tmp->seg_size++;
-	memcpy(segments[tmp->seg_size-1].s6_addr, segmsg->segment.s6_addr, 16);
-	tmp->segments = segments;
+	tmp->id = segmsg->id;
+	tmp->seg_size = segmsg->seg_len;
+	tmp->cleanup = segmsg->cleanup;
+	tmp->hmackeyid = segmsg->hmackeyid;
+	tmp->segments = kmalloc(segmsg->seg_len*sizeof(struct in6_addr), GFP_KERNEL);
+	if (!tmp->segments) {
+		kfree(tmp);
+		return -ENOMEM;
+	}
 
+	err = copy_from_user(tmp->segments, segmsg->segments, segmsg->seg_len*sizeof(struct in6_addr));
+	if (err) {
+		kfree(tmp);
+		return -EFAULT;
+	}
+
+	tmp->next = info->list;
+	info->list = tmp;
+	info->list_size++;
 	return 0;
 }
 EXPORT_SYMBOL(seg6_add_segment);
