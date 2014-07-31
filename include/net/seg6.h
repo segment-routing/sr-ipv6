@@ -21,6 +21,7 @@ struct seg6_list {
 	struct in6_addr *segments;
 	int seg_size;
 	int cleanup;
+	int tunnel;
 	u8 hmackeyid;
 
 	struct seg6_list *next;
@@ -41,6 +42,7 @@ struct seg6_addseg {
 	int dst_len;
 	u16 id;
 	int cleanup;
+	int tunnel;
 	u8 hmackeyid;
 	struct in6_addr __user *segments;
 	int seg_len;

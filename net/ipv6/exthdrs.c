@@ -306,7 +306,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	u32 hmac_output[5];
 	u8 *hmac_input;
 	u8 hmac_key_id;
-	int nh, srhlen;
+	int nh, srhlen, ph = 0;
 
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
@@ -351,7 +351,8 @@ looped_back:
 	if (hdr->next_segment != hdr->last_segment) {
 		inc = 1;
 	} else if (memcmp(ipv6_hdr(skb)->daddr.s6_addr, (*last_addr).s6_addr, 16) != 0) {
-		if (sr_get_flags(hdr) & 0x8)
+		ph = 1;
+		if (sr_get_flags(hdr) & (0x8 | 0x2)) // force cleanup when in tunnel mode
 			cleanup = 1;
 	} else {
 		topid = 1;
@@ -380,25 +381,37 @@ looped_back:
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->ip_summed = CHECKSUM_NONE;
 
+	/* replace source address by local if we are in tunnel mode */
+	if (!ph && sr_get_flags(hdr) & 0x2)
+		ipv6_hdr(skb)->saddr = ipv6_hdr(skb)->daddr;
+
+	/* useless if we are tunnel exit but we need to do this before cleanup anyway */
 	ipv6_hdr(skb)->daddr = *addr;
+
+	skb_push(skb, skb->data - skb_network_header(skb));
 
 	/* cleanup */
 
 	if (cleanup) {
-		nh = hdr->nexthdr;
 		srhlen = (hdr->hdrlen + 1) << 3;
-		/* we need to move data from top to bottom to avoid nonlinear skb issues with TSO/GSO */
-		memmove(skb_network_header(skb) + srhlen, skb_network_header(skb), (unsigned char *)hdr - skb_network_header(skb));
-		skb_pull(skb, srhlen);
-		skb->network_header += srhlen;
-		ipv6_hdr(skb)->nexthdr = nh;
-		ipv6_hdr(skb)->payload_len = htons(skb->len);
+
+		if (sr_get_flags(hdr) & 0x2) {
+			skb_pull(skb, sizeof(struct ipv6hdr) + srhlen);
+			skb->network_header += sizeof(struct ipv6hdr) + srhlen;
+		} else {
+			nh = hdr->nexthdr;
+			/* we need to move data from top to bottom to avoid nonlinear skb issues with TSO/GSO */
+			memmove(skb_network_header(skb) + srhlen, skb_network_header(skb), (unsigned char *)hdr - skb_network_header(skb));
+			skb_pull(skb, srhlen);
+			skb->network_header += srhlen;
+			ipv6_hdr(skb)->nexthdr = nh;
+			ipv6_hdr(skb)->payload_len = htons(skb->len);
+		}
 	}
 
 	skb_dst_drop(skb);
 	ip6_route_input(skb);
 	if (skb_dst(skb)->error) {
-		skb_push(skb, skb->data - skb_network_header(skb));
 		dst_input(skb);
 		return -1;
 	}
@@ -416,7 +429,6 @@ looped_back:
 		goto looped_back;
 	}
 
-	skb_push(skb, skb->data - skb_network_header(skb));
 	dst_input(skb);
 
 	return -1;
