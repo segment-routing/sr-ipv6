@@ -936,6 +936,7 @@ static int __init inet6_init(void)
 	if (err)
 		goto sysctl_fail;
 	seg6_init_sysctl();
+	seg6_nl_init();
 #endif
 out:
 	return err;

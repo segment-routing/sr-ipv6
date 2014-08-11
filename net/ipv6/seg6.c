@@ -28,6 +28,7 @@
 #include <crypto/hash.h>
 #include <crypto/sha.h>
 #include <net/seg6.h>
+#include <net/genetlink.h>
 
 char seg6_hmac_key[SEG6_HMAC_MAX_SIZE] = "secret";
 
@@ -439,4 +440,274 @@ static struct ctl_table seg6_table[] = {
 void __net_init seg6_init_sysctl(void)
 {
 	register_net_sysctl(&init_net, "net/seg6", seg6_table);
+}
+
+enum {
+	SEG6_ATTR_UNSPEC,
+	SEG6_ATTR_DST,
+	SEG6_ATTR_DSTLEN,
+	SEG6_ATTR_SEGLISTID,
+	SEG6_ATTR_FLAGS,
+	SEG6_ATTR_HMACKEYID,
+	SEG6_ATTR_SEGMENTS,
+	SEG6_ATTR_SEGLEN,
+	SEG6_ATTR_SEGINFO,
+	__SEG6_ATTR_MAX,
+};
+
+#define SEG6_ATTR_MAX (__SEG6_ATTR_MAX - 1)
+
+static struct nla_policy seg6_genl_policy[SEG6_ATTR_MAX + 1] = {
+	[SEG6_ATTR_DST] 		= { .type = NLA_BINARY, .len = sizeof(struct in6_addr) },
+	[SEG6_ATTR_DSTLEN]		= { .type = NLA_S32, },
+	[SEG6_ATTR_SEGLISTID] 	= { .type = NLA_U16, },
+	[SEG6_ATTR_FLAGS] 		= { .type = NLA_U32, },
+	[SEG6_ATTR_HMACKEYID] 	= { .type = NLA_U8, },
+	[SEG6_ATTR_SEGMENTS] 	= { .type = NLA_BINARY, },
+	[SEG6_ATTR_SEGLEN] 		= { .type = NLA_S32, },
+	[SEG6_ATTR_SEGINFO]		= { .type = NLA_NESTED, },
+};
+
+static struct genl_family seg6_genl_family = {
+	.id = GENL_ID_GENERATE,
+	.hdrsize = 0,
+	.name = "SEG6",
+	.version = 1,
+	.maxattr = SEG6_ATTR_MAX,
+	.netnsok = true,
+};
+
+enum {
+    SEG6_CMD_UNSPEC,
+    SEG6_CMD_ADDSEG,
+    SEG6_CMD_DELSEG,
+    SEG6_CMD_FLUSH,
+    SEG6_CMD_DUMP,
+    __SEG6_CMD_MAX,
+};
+
+#define SEG6_CMD_MAX (__SEG6_CMD_MAX - 1)
+
+static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
+{
+	struct seg6_info *s6info;
+	struct seg6_list *tmp;
+	int found = 0;
+	struct in6_addr *dst;
+	int dst_len, seg_len;
+	unsigned int flags;
+	u16 seglist_id;
+	struct net *net = genl_info_net(info);
+
+	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_DSTLEN] || !info->attrs[SEG6_ATTR_SEGLISTID] ||
+		!info->attrs[SEG6_ATTR_FLAGS] || !info->attrs[SEG6_ATTR_HMACKEYID] || !info->attrs[SEG6_ATTR_SEGMENTS] ||
+		!info->attrs[SEG6_ATTR_SEGLEN])
+		return -EINVAL;
+
+	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
+	dst_len = nla_get_s32(info->attrs[SEG6_ATTR_DSTLEN]);
+	seglist_id = nla_get_u16(info->attrs[SEG6_ATTR_SEGLISTID]);
+	seg_len = nla_get_s32(info->attrs[SEG6_ATTR_SEGLEN]);
+	flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
+
+	hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[seg6_hashfn(dst)], seg_chain) {
+		if (memcmp(s6info->dst.s6_addr, dst->s6_addr, 16) == 0 && s6info->dst_len == dst_len) {
+			found = 1;
+			break;
+		}
+	}
+
+	if (!found) {
+		s6info = kzalloc(sizeof(*s6info), GFP_KERNEL);
+		if (!s6info)
+			return -ENOMEM;
+
+		memcpy(s6info->dst.s6_addr, dst->s6_addr, 16);
+		s6info->dst_len = dst_len;
+
+		hlist_add_head_rcu(&s6info->seg_chain, &net->ipv6.seg6_hash[seg6_hashfn(dst)]);
+	} else {
+		for (tmp = s6info->list; tmp; tmp = tmp->next) {
+			if (tmp->id == seglist_id)
+				return -EEXIST;
+		}
+	}
+
+	tmp = kzalloc(sizeof(struct seg6_list), GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	tmp->id = seglist_id;
+	tmp->seg_size = seg_len;
+	tmp->cleanup = (flags & 0x8) ? 1 : 0;
+	tmp->tunnel = (flags & 0x2) ? 1 : 0;
+	tmp->hmackeyid = nla_get_u8(info->attrs[SEG6_ATTR_HMACKEYID]);
+	tmp->segments = kmalloc(seg_len*sizeof(struct in6_addr), GFP_KERNEL);
+	if (!tmp->segments) {
+		kfree(tmp);
+		return -ENOMEM;
+	}
+
+	memcpy(tmp->segments, nla_data(info->attrs[SEG6_ATTR_SEGMENTS]), seg_len*sizeof(struct in6_addr));
+
+	tmp->next = s6info->list;
+	s6info->list = tmp;
+	s6info->list_size++;
+	return 0;
+}
+
+static int seg6_genl_delseg(struct sk_buff *skb, struct genl_info *info)
+{
+	struct seg6_info *s6info;
+	int found = 0;
+	struct in6_addr *dst;
+	int dst_len;
+	u16 seglist_id;
+	struct net *net = genl_info_net(info);
+
+	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_DSTLEN] || !info->attrs[SEG6_ATTR_SEGLISTID])
+		return -EINVAL;
+
+	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
+	dst_len = nla_get_s32(info->attrs[SEG6_ATTR_DSTLEN]);
+	seglist_id = nla_get_u16(info->attrs[SEG6_ATTR_SEGLISTID]);
+
+	hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[seg6_hashfn(dst)], seg_chain) {
+		if (memcmp(s6info->dst.s6_addr, dst->s6_addr, 16) == 0 && s6info->dst_len == dst_len) {
+			found = 1;
+			break;
+		}
+	}
+
+	if (!found)
+		return -ENOENT;
+
+	if (seglist_id == (u16)-1) {
+		__seg6_flush_segment(s6info);
+	} else {
+		if (__seg6_remove_id(s6info, seglist_id))
+			return -ENOENT;
+	}
+
+	if (s6info->list_size == 0) {
+		hlist_del_rcu(&s6info->seg_chain);
+		kfree(s6info);
+	}
+
+	return 0;
+}
+
+static int seg6_genl_flush(struct sk_buff *skb, struct genl_info *info)
+{
+	struct seg6_info *s6info;
+	struct hlist_node *itmp;
+	int i;
+	struct net *net = genl_info_net(info);
+
+	for (i = 0; i < 4096; i++) {
+		hlist_for_each_entry_safe(s6info, itmp, &net->ipv6.seg6_hash[i], seg_chain) {
+			__seg6_flush_segment(s6info);
+			hlist_del_rcu(&s6info->seg_chain);
+			kfree(s6info);
+		}
+	}
+
+	return 0;
+}
+
+static int seg6_genl_dump(struct sk_buff *skb, struct genl_info *info)
+{
+	struct seg6_info *s6info;
+	struct seg6_list *list;
+	int i;
+	struct sk_buff *msg;
+	void *hdr;
+	struct nlattr *nla, *nla2;
+	struct net *net = genl_info_net(info);
+
+	for (i = 0; i < 4096; i++) {
+		hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[i], seg_chain) {
+			list = s6info->list;
+			while (list != NULL) {
+				msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+				if (!msg)
+					return -ENOMEM;
+
+				hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMP);
+				if (!hdr)
+					goto free_msg;
+
+				nla = nla_nest_start(msg, SEG6_ATTR_SEGINFO);
+				if (!nla)
+					goto nla_put_failure;
+
+				if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), &s6info->dst))
+					goto nla_put_failure;
+
+				if (nla_put_s32(msg, SEG6_ATTR_DSTLEN, s6info->dst_len))
+					goto nla_put_failure;
+
+				if (nla_put_u16(msg, SEG6_ATTR_SEGLISTID, list->id))
+					goto nla_put_failure;
+
+				if (nla_put_s32(msg, SEG6_ATTR_SEGLEN, list->seg_size))
+					goto nla_put_failure;
+
+				if (nla_put_u32(msg, SEG6_ATTR_FLAGS, ((list->cleanup & 0x1) << 3) | ((list->tunnel & 0x1) << 1)))
+					goto nla_put_failure;
+
+				if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, list->hmackeyid))
+					goto nla_put_failure;
+
+				if (nla_put(msg, SEG6_ATTR_SEGMENTS, list->seg_size*sizeof(struct in6_addr), list->segments))
+					goto nla_put_failure;
+
+				nla_nest_end(msg, nla);
+				genlmsg_end(msg, hdr);
+				genlmsg_reply(msg, info);
+
+				list = list->next;
+			}
+		}
+	}
+
+	return 0;
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+free_msg:
+	nlmsg_free(msg);
+	return -ENOMEM;
+}
+
+static struct genl_ops seg6_genl_ops[] = {
+	{
+		.cmd 	= SEG6_CMD_ADDSEG,
+		.doit 	= seg6_genl_addseg,
+		.policy = seg6_genl_policy,
+		.flags 	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd 	= SEG6_CMD_DELSEG,
+		.doit 	= seg6_genl_delseg,
+		.policy	= seg6_genl_policy,
+		.flags 	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd	= SEG6_CMD_FLUSH,
+		.doit 	= seg6_genl_flush,
+		.policy	= seg6_genl_policy,
+		.flags 	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd	= SEG6_CMD_DUMP,
+		.doit	= seg6_genl_dump,
+		.policy	= seg6_genl_policy,
+		.flags	= 0,
+	},
+};
+
+void __net_init seg6_nl_init(void)
+{
+	genl_register_family_with_ops(&seg6_genl_family, seg6_genl_ops, 4);
 }

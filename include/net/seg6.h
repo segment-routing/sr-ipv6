@@ -68,6 +68,7 @@ extern int seg6_process_skb(struct net *net, struct sk_buff **skb);
 extern struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst);
 extern void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh);
 extern void seg6_init_sysctl(void);
+extern void seg6_nl_init(void);
 
 extern char seg6_hmac_key[];
 #define SEG6_HMAC(srh) ((srh)->segments + (((srh)->last_segment + 4) >> 1))
