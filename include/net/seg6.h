@@ -17,22 +17,21 @@
 #define SEG6DELSEG	0x0006
 
 struct seg6_list {
-	u16 id;
+	struct seg6_list *next;
 	struct in6_addr *segments;
 	int seg_size;
 	int cleanup;
 	int tunnel;
+	u16 id;
 	u8 hmackeyid;
-
-	struct seg6_list *next;
 };
 
 struct seg6_info {
 	struct in6_addr dst;
 	int dst_len;
 
-	struct seg6_list *list;
 	int list_size;
+	struct seg6_list *list;
 
 	struct hlist_node seg_chain;
 };
