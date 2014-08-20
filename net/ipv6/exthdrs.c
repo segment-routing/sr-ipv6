@@ -405,7 +405,7 @@ looped_back:
 			skb_pull(skb, srhlen);
 			skb->network_header += srhlen;
 			ipv6_hdr(skb)->nexthdr = nh;
-			ipv6_hdr(skb)->payload_len = htons(skb->len);
+			ipv6_hdr(skb)->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 		}
 	}
 
