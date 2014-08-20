@@ -294,134 +294,22 @@ static int __seg6_remove_id(struct seg6_info *info, u16 id)
 	return found ? 0 : 1;
 }
 
-int seg6_flush_segments(struct net *net)
+void seg6_flush_segments(struct net *net)
 {
-	struct seg6_info *info;
+	struct seg6_info *s6info;
 	struct hlist_node *itmp;
 	int i;
 
 	for (i = 0; i < 4096; i++) {
-		hlist_for_each_entry_safe(info, itmp, &net->ipv6.seg6_hash[i], seg_chain) {
-			__seg6_flush_segment(info);
-			hlist_del_rcu(&info->seg_chain);
-			kfree(info);
+		hlist_for_each_entry_safe(s6info, itmp, &net->ipv6.seg6_hash[i], seg_chain) {
+			__seg6_flush_segment(s6info);
+			hlist_del_rcu(&s6info->seg_chain);
+			seg6_route_delete(net->ipv6.seg6_fib_root, &s6info->dst, s6info->dst_len);
+			kfree(s6info);
 		}
 	}
-
-	return 0;
 }
 EXPORT_SYMBOL(seg6_flush_segments);
-
-int seg6_dump_segments(struct net *net)
-{
-	struct seg6_info *info;
-	struct seg6_list *list;
-	int i, j;
-
-	for (i = 0; i < 4096; i++) {
-		hlist_for_each_entry_rcu(info, &net->ipv6.seg6_hash[i], seg_chain) {
-			list = info->list;
-			printk(KERN_DEBUG "seg6_dump_segments(): dumping %u entries for dst %pI6 dstlen %u\n", info->list_size, &info->dst, info->dst_len);
-			while (list != NULL) {
-				printk(KERN_DEBUG "seg6_dump_segments(): dumping %u segments for subentry %u\n", list->seg_size, list->id);
-				for (j = 0; j < list->seg_size; j++)
-					printk(KERN_DEBUG "seg6_dump_segments(): subentry %u segment #%u is %pI6\n", list->id, j, &list->segments[j]);
-				list = list->next;
-			}
-		}
-	}
-
-	return 0;
-}
-EXPORT_SYMBOL(seg6_dump_segments);
-
-int seg6_del_segment(struct net *net, struct seg6_delseg *segmsg)
-{
-	struct seg6_info *info;
-	int found = 0;
-
-	hlist_for_each_entry_rcu(info, &net->ipv6.seg6_hash[seg6_hashfn(&segmsg->dst)], seg_chain) {
-		if (memcmp(info->dst.s6_addr, segmsg->dst.s6_addr, 16) == 0 && info->dst_len == segmsg->dst_len) {
-			found = 1;
-			break;
-		}
-	}
-
-	if (!found)
-		return -ENOENT;
-
-	if (segmsg->id == (u16)-1) {
-		__seg6_flush_segment(info);
-	} else {
-		if (__seg6_remove_id(info, segmsg->id))
-			return -ENOENT;
-	}
-
-	if (info->list_size == 0) {
-		hlist_del_rcu(&info->seg_chain);
-		kfree(info);
-	}
-
-	return 0;
-}
-EXPORT_SYMBOL(seg6_del_segment);
-
-int seg6_add_segment(struct net *net, struct seg6_addseg *segmsg)
-{
-	struct seg6_info *info;
-	struct seg6_list *tmp;
-	int found = 0, err;
-
-	hlist_for_each_entry_rcu(info, &net->ipv6.seg6_hash[seg6_hashfn(&segmsg->dst)], seg_chain) {
-		if (memcmp(info->dst.s6_addr, segmsg->dst.s6_addr, 16) == 0 && info->dst_len == segmsg->dst_len) {
-			found = 1;
-			break;
-		}
-	}
-
-	if (!found) {
-		info = kzalloc(sizeof(*info), GFP_KERNEL);
-		if (!info)
-			return -ENOMEM;
-
-		memcpy(info->dst.s6_addr, segmsg->dst.s6_addr, 16);
-		info->dst_len = segmsg->dst_len;
-
-		hlist_add_head_rcu(&info->seg_chain, &net->ipv6.seg6_hash[seg6_hashfn(&info->dst)]);
-	} else {
-		for (tmp = info->list; tmp; tmp = tmp->next) {
-			if (tmp->id == segmsg->id)
-				return -EEXIST;
-		}
-	}
-
-	tmp = kzalloc(sizeof(struct seg6_list), GFP_KERNEL);
-	if (!tmp)
-		return -ENOMEM;
-
-	tmp->id = segmsg->id;
-	tmp->seg_size = segmsg->seg_len;
-	tmp->cleanup = segmsg->cleanup;
-	tmp->tunnel = segmsg->tunnel;
-	tmp->hmackeyid = segmsg->hmackeyid;
-	tmp->segments = kmalloc(segmsg->seg_len*sizeof(struct in6_addr), GFP_KERNEL);
-	if (!tmp->segments) {
-		kfree(tmp);
-		return -ENOMEM;
-	}
-
-	err = copy_from_user(tmp->segments, segmsg->segments, segmsg->seg_len*sizeof(struct in6_addr));
-	if (err) {
-		kfree(tmp);
-		return -EFAULT;
-	}
-
-	tmp->next = info->list;
-	info->list = tmp;
-	info->list_size++;
-	return 0;
-}
-EXPORT_SYMBOL(seg6_add_segment);
 
 static struct ctl_table seg6_table[] = {
 	{
@@ -604,19 +492,9 @@ static int seg6_genl_delseg(struct sk_buff *skb, struct genl_info *info)
 
 static int seg6_genl_flush(struct sk_buff *skb, struct genl_info *info)
 {
-	struct seg6_info *s6info;
-	struct hlist_node *itmp;
-	int i;
 	struct net *net = genl_info_net(info);
 
-	for (i = 0; i < 4096; i++) {
-		hlist_for_each_entry_safe(s6info, itmp, &net->ipv6.seg6_hash[i], seg_chain) {
-			__seg6_flush_segment(s6info);
-			hlist_del_rcu(&s6info->seg_chain);
-			seg6_route_delete(net->ipv6.seg6_fib_root, &s6info->dst, s6info->dst_len);
-			kfree(s6info);
-		}
-	}
+	seg6_flush_segments(net);
 
 	return 0;
 }

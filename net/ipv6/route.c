@@ -1962,9 +1962,6 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 {
 	struct fib6_config cfg;
 	struct in6_rtmsg rtmsg;
-	struct seg6_addseg s6addseg;
-	struct seg6_delseg s6delseg;
-	struct seg6_msg s6msg;
 	int err;
 
 	switch(cmd) {
@@ -1993,36 +1990,6 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		rtnl_unlock();
 
 		return err;
-	case SIOCSETSG:
-		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
-			return -EPERM;
-
-		err = copy_from_user(&s6msg, arg, sizeof(struct seg6_msg));
-		if (err)
-			return -EFAULT;
-
-		switch(s6msg.msg) {
-		case SEG6ADDSEG:
-			err = copy_from_user(&s6addseg, s6msg.data, sizeof(struct seg6_addseg));
-			if (err)
-				return -EFAULT;
-
-			err = seg6_add_segment(net, &s6addseg);
-			return err;
-		case SEG6DELSEG:
-			err = copy_from_user(&s6delseg, s6msg.data, sizeof(struct seg6_delseg));
-			if (err)
-				return -EFAULT;
-
-			err = seg6_del_segment(net, &s6delseg);
-			return err;
-		case SEG6FLUSH:
-			err = seg6_flush_segments(net);
-			return err;
-		case SEG6DUMP:
-			err = seg6_dump_segments(net);
-			return err;
-		}
 	}
 
 	return -EINVAL;
