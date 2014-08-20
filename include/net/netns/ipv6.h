@@ -72,6 +72,7 @@ struct netns_ipv6 {
 #endif
 #endif
 	struct hlist_head	*seg6_hash;
+	struct s6ib_node	*seg6_fib_root;
 	atomic_t		dev_addr_genid;
 };
 

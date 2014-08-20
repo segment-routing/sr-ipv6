@@ -59,6 +59,7 @@
 #include <net/netlink.h>
 #include <net/nexthop.h>
 #include <net/seg6.h>
+#include <net/seg6_table.h>
 
 #include <asm/uaccess.h>
 
@@ -3102,6 +3103,12 @@ static int __net_init seg6_init(struct net *net)
 	for (i = 0; i < 4096; i++)
 		INIT_HLIST_HEAD(&net->ipv6.seg6_hash[i]);
 
+	net->ipv6.seg6_fib_root = kzalloc(sizeof(struct s6ib_node), GFP_KERNEL);
+	if (!net->ipv6.seg6_fib_root) {
+		kfree(net->ipv6.seg6_hash);
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -3109,6 +3116,7 @@ static void __net_exit seg6_exit(struct net *net)
 {
 	seg6_flush_segments(net);
 	kfree(net->ipv6.seg6_hash);
+	kfree(net->ipv6.seg6_fib_root);
 }
 
 static struct pernet_operations ip6_segments_ops = {

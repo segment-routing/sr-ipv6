@@ -22,7 +22,7 @@ ipv6-$(CONFIG_IPV6_MULTIPLE_TABLES) += fib6_rules.o
 ipv6-$(CONFIG_PROC_FS) += proc.o
 ipv6-$(CONFIG_SYN_COOKIES) += syncookies.o
 
-ipv6-objs += $(ipv6-y) seg6.o
+ipv6-objs += $(ipv6-y) seg6.o seg6_table.o
 
 obj-$(CONFIG_INET6_AH) += ah6.o
 obj-$(CONFIG_INET6_ESP) += esp6.o

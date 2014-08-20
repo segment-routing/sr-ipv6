@@ -29,6 +29,7 @@
 #include <crypto/sha.h>
 #include <net/seg6.h>
 #include <net/genetlink.h>
+#include <net/seg6_table.h>
 
 char seg6_hmac_key[SEG6_HMAC_MAX_SIZE] = "secret";
 
@@ -137,29 +138,25 @@ EXPORT_SYMBOL(sr_hmac_sha1);
 struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
 {
 	struct seg6_info *info;
-	struct seg6_list *node;
-	int found = 0;
+	struct s6ib_node *node;
+	struct seg6_list *list_node;
 	int i, id;
 
-	hlist_for_each_entry_rcu(info, &net->ipv6.seg6_hash[seg6_hashfn(dst)], seg_chain) {
-		if (ipv6_prefix_equal(dst, &info->dst, info->dst_len)) {
-			found = 1;
-			break;
-		}
-	}
-
-	if (!found)
+	node = seg6_route_lookup(net->ipv6.seg6_fib_root, dst);
+	if (!node || !node->s6info)
 		return NULL;
+
+	info = node->s6info;
 
 	if (info->list_size == 0)
 		return NULL;
 
 	id = net_random()%info->list_size;
-	node = info->list;
+	list_node = info->list;
 	for (i = 0; i < id; i++)
-		node = node->next;
+		list_node = list_node->next;
 
-	return node;
+	return list_node;
 }
 EXPORT_SYMBOL(seg6_get_segments);
 
@@ -497,6 +494,7 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 	int dst_len, seg_len;
 	unsigned int flags;
 	u16 seglist_id;
+	struct s6ib_node *node;
 	struct net *net = genl_info_net(info);
 
 	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_DSTLEN] || !info->attrs[SEG6_ATTR_SEGLISTID] ||
@@ -525,6 +523,11 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 		memcpy(s6info->dst.s6_addr, dst->s6_addr, 16);
 		s6info->dst_len = dst_len;
 
+		node = seg6_route_insert(net->ipv6.seg6_fib_root, s6info);
+		if (IS_ERR(node)) {
+			kfree(s6info);
+			return PTR_ERR(node);
+		}
 		hlist_add_head_rcu(&s6info->seg_chain, &net->ipv6.seg6_hash[seg6_hashfn(dst)]);
 	} else {
 		for (tmp = s6info->list; tmp; tmp = tmp->next) {
@@ -553,6 +556,7 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 	tmp->next = s6info->list;
 	s6info->list = tmp;
 	s6info->list_size++;
+
 	return 0;
 }
 
@@ -591,6 +595,7 @@ static int seg6_genl_delseg(struct sk_buff *skb, struct genl_info *info)
 
 	if (s6info->list_size == 0) {
 		hlist_del_rcu(&s6info->seg_chain);
+		seg6_route_delete(net->ipv6.seg6_fib_root, dst, dst_len);
 		kfree(s6info);
 	}
 
@@ -608,6 +613,7 @@ static int seg6_genl_flush(struct sk_buff *skb, struct genl_info *info)
 		hlist_for_each_entry_safe(s6info, itmp, &net->ipv6.seg6_hash[i], seg_chain) {
 			__seg6_flush_segment(s6info);
 			hlist_del_rcu(&s6info->seg_chain);
+			seg6_route_delete(net->ipv6.seg6_fib_root, &s6info->dst, s6info->dst_len);
 			kfree(s6info);
 		}
 	}
@@ -622,7 +628,7 @@ static int seg6_genl_dump(struct sk_buff *skb, struct genl_info *info)
 	int i;
 	struct sk_buff *msg;
 	void *hdr;
-	struct nlattr *nla, *nla2;
+	struct nlattr *nla;
 	struct net *net = genl_info_net(info);
 
 	for (i = 0; i < 4096; i++) {
