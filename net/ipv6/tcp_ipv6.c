@@ -258,7 +258,7 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	fl6.fl6_sport = inet->inet_sport;
 
 	/* TODO add sysctl check */
-	segments = seg6_get_segments(sock_net(sk), &np->daddr);
+	segments = seg6_get_segments(sock_net(sk), &sk->sk_v6_daddr);
 	if (!np->opt && segments) {
 		tot_len = CMSG_ALIGN(SEG6_HDR_BYTELEN(segments));
 		tot_len += sizeof(*opt2);
@@ -1265,7 +1265,7 @@ static struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	 */
 
 	/* TODO sysctl */
-	segments = seg6_get_segments(sock_net(newsk), &newnp->daddr);
+	segments = seg6_get_segments(sock_net(newsk), &newsk->sk_v6_daddr);
 	if (!np->opt && segments) {
 		tot_len = CMSG_ALIGN(SEG6_HDR_BYTELEN(segments));
 		tot_len += sizeof(*opt2);
