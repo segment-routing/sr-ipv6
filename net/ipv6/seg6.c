@@ -30,6 +30,7 @@
 #include <net/seg6.h>
 #include <net/genetlink.h>
 #include <net/seg6_table.h>
+#include <linux/random.h>
 
 char seg6_hmac_key[SEG6_HMAC_MAX_SIZE] = "secret";
 
@@ -151,7 +152,7 @@ struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
 	if (info->list_size == 0)
 		return NULL;
 
-	id = net_random()%info->list_size;
+	id = prandom_u32()%info->list_size;
 	list_node = info->list;
 	for (i = 0; i < id; i++)
 		list_node = list_node->next;
