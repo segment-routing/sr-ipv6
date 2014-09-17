@@ -6,6 +6,8 @@
 #include <net/ipv6.h>
 #include <net/ip6_fib.h>
 #include <net/addrconf.h>
+#include <linux/netfilter_ipv6.h>
+#include <net/seg6.h>
 
 void ipv6_select_ident(struct frag_hdr *fhdr, struct rt6_info *rt)
 {
