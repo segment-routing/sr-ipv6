@@ -594,5 +594,5 @@ static struct genl_ops seg6_genl_ops[] = {
 
 void __net_init seg6_nl_init(void)
 {
-	genl_register_family_with_ops(&seg6_genl_family, seg6_genl_ops, 4);
+	genl_register_family_with_ops(&seg6_genl_family, seg6_genl_ops);
 }
