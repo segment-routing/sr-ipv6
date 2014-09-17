@@ -21,8 +21,10 @@
  *
  */
 
+#include <linux/firmware.h>
 #include "drmP.h"
 #include "radeon.h"
+#include "radeon_ucode.h"
 #include "cikd.h"
 #include "r600_dpm.h"
 #include "ci_dpm.h"
@@ -1159,7 +1161,7 @@ static int ci_stop_dpm(struct radeon_device *rdev)
 	tmp &= ~GLOBAL_PWRMGT_EN;
 	WREG32_SMC(GENERAL_PWRMGT, tmp);
 
-	tmp = RREG32(SCLK_PWRMGT_CNTL);
+	tmp = RREG32_SMC(SCLK_PWRMGT_CNTL);
 	tmp &= ~DYNAMIC_PM_EN;
 	WREG32_SMC(SCLK_PWRMGT_CNTL, tmp);
 
@@ -5105,6 +5107,12 @@ int ci_dpm_init(struct radeon_device *rdev)
 	pi->sclk_dpm_key_disabled = 0;
 	pi->mclk_dpm_key_disabled = 0;
 	pi->pcie_dpm_key_disabled = 0;
+
+	/* mclk dpm is unstable on some R7 260X cards with the old mc ucode */
+	if ((rdev->pdev->device == 0x6658) &&
+	    (rdev->mc_fw->size == (BONAIRE_MC_UCODE_SIZE * 4))) {
+		pi->mclk_dpm_key_disabled = 1;
+	}
 
 	pi->caps_sclk_ds = true;
 
