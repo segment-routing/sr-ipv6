@@ -1132,6 +1132,7 @@ static struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	struct flowi6 fl6;
 	struct seg6_list *segments;
 	struct ipv6_txoptions *opt2;
+	struct ipv6_sr_hdr *srhdr;
 	int tot_len;
 
 	if (skb->protocol == htons(ETH_P_IP)) {
@@ -1276,6 +1277,20 @@ static struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 		}*/
 		memset(opt2, 0, tot_len);
 		seg6_build_tmpl_srh(segments, (struct ipv6_sr_hdr *)(opt2 + 1));
+		opt2->srcrt = (struct ipv6_rt_hdr *)(opt2 + 1);
+		opt2->srcrt_srh = 1;
+		opt2->opt_nflen = ipv6_optlen(opt2->srcrt);
+		newnp->opt = opt2;
+	}
+
+	if (!np->opt && !segments && IP6CB(skb)->srcrt > 0 && seg6_srh_reversal) {
+		srhdr = (struct ipv6_sr_hdr *)(skb_network_header(skb) + IP6CB(skb)->srcrt);
+
+		tot_len = CMSG_ALIGN((SEG6_SRH_SEGSIZE(srhdr)*16 + 8)); // do not copy hmac
+		tot_len += sizeof(*opt2);
+		opt2 = sock_kmalloc(newsk, tot_len, GFP_ATOMIC);
+		memset(opt2, 0, tot_len);
+		seg6_srh_to_tmpl(srhdr, (struct ipv6_sr_hdr *)(opt2 + 1));
 		opt2->srcrt = (struct ipv6_rt_hdr *)(opt2 + 1);
 		opt2->srcrt_srh = 1;
 		opt2->opt_nflen = ipv6_optlen(opt2->srcrt);
