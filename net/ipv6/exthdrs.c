@@ -316,8 +316,10 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	hmac_key_id = sr_get_hmac_key_id(hdr);
 	if (hmac_key_id != 0) {
 		// segments size = (last_segment + 2)
-		// size with segments + hmac: (last_segment + 2) + 4
-		if (hdr->hdrlen < hdr->last_segment + 2 + 4) { // TODO fix this for first-as-last segment (2 bytes more)
+		// size with segments + hmac: (last_segment + 4) + 4
+		// [seg1][...]x[last_segment][first_segment][hmac]
+		// end of hdr = x + 2 + 2 + 4
+		if (hdr->hdrlen < hdr->last_segment + 2 + 2 + 4) {
 			kfree_skb(skb);
 			return -1;
 		}
