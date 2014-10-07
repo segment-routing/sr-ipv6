@@ -1283,7 +1283,7 @@ static struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 		newnp->opt = opt2;
 	}
 
-	if (!np->opt && !segments && IP6CB(skb)->srcrt > 0 && seg6_srh_reversal) {
+	if (!np->opt && !segments && IP6CB(skb)->srcrt > 0 && np->srhreverse) {
 		srhdr = (struct ipv6_sr_hdr *)(skb_network_header(skb) + IP6CB(skb)->srcrt);
 
 		tot_len = CMSG_ALIGN((SEG6_SRH_SEGSIZE(srhdr)*16 + 8)); // do not copy hmac

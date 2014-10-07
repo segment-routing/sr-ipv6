@@ -837,6 +837,10 @@ pref_skip_coa:
 		np->dontfrag = valbool;
 		retv = 0;
 		break;
+	case IPV6_SRHREVERSE:
+		np->srhreverse = valbool;
+		retv = 0;
+		break;
 	}
 
 	release_sock(sk);

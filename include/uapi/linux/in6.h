@@ -229,6 +229,7 @@ struct in6_flowlabel_req {
 #if 0	/* not yet */
 #define IPV6_USE_MIN_MTU	63
 #endif
+#define IPV6_SRHREVERSE 	64
 
 /*
  * Netfilter (1)
