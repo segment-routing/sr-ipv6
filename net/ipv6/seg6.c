@@ -33,6 +33,7 @@
 #include <linux/random.h>
 
 char seg6_hmac_key[SEG6_HMAC_MAX_SIZE] = "secret";
+int seg6_srh_reversal = 0;
 
 static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
 {
@@ -183,6 +184,19 @@ void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 }
 EXPORT_SYMBOL(seg6_build_tmpl_srh);
 
+void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to)
+{
+	int seg_size;
+
+	hdr_to->hdrlen = hdr_from->last_segment + 4;
+	hdr_to->type = IPV6_SRCRT_TYPE_4;
+	hdr_to->last_segment = hdr_from->last_segment;
+
+	seg_size = SEG6_SRH_SEGSIZE(hdr_from);
+	memcpy(&hdr_to->segments[1], hdr_from->segments, (seg_size - 1)*sizeof(struct in6_addr));
+	memcpy(hdr_to->segments, hdr_from->segments + (seg_size - 1), sizeof(struct in6_addr));
+}
+
 /*
  * Push SRH in matching forwarded packets
  */
@@ -319,6 +333,13 @@ static struct ctl_table seg6_table[] = {
 		.maxlen		= SEG6_HMAC_MAX_SIZE,
 		.mode		= 0644,
 		.proc_handler	= proc_dostring,
+	},
+	{
+		.procname 	= "srh_reversal",
+		.data		= &seg6_srh_reversal,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
 	},
 	{ }
 };

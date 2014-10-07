@@ -317,7 +317,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	if (hmac_key_id != 0) {
 		// segments size = (last_segment + 2)
 		// size with segments + hmac: (last_segment + 2) + 4
-		if (hdr->hdrlen < hdr->last_segment + 2 + 4) {
+		if (hdr->hdrlen < hdr->last_segment + 2 + 4) { // TODO fix this for first-as-last segment (2 bytes more)
 			kfree_skb(skb);
 			return -1;
 		}
@@ -353,7 +353,7 @@ looped_back:
 	}
 
 	if (topid) {
-		opt->lastopt = skb_network_header_len(skb);
+		opt->lastopt = opt->srcrt = skb_network_header_len(skb);
 		skb->transport_header += (hdr->hdrlen + 1) << 3;
 		opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
 		return 1;
