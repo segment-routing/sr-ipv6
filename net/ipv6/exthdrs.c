@@ -302,6 +302,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	u8 *hmac_input;
 	u8 hmac_key_id;
 	int nh, srhlen, ph = 0;
+	struct inet6_dev *idev;
 
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
@@ -313,9 +314,18 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		return -1;
 	}
 
+	idev = __in6_dev_get(skb->dev);
+
 	/* HMAC check */
 	hmac_key_id = sr_get_hmac_key_id(hdr);
-	if (hmac_key_id != 0) {
+
+	if (idev->cnf.seg6_require_hmac > 0 && hmac_key_id == 0) {
+		printk(KERN_DEBUG "SR-IPv6: require_hmac is set and hmac is not present\n");
+		kfree_skb(skb);
+		return -1;
+	}
+
+	if (idev->cnf.seg6_require_hmac >= 0 && hmac_key_id != 0) {
 		// segments size = (last_segment + 2)
 		// size with segments + hmac: (last_segment + 4) + 4
 		// [seg1][...]x[last_segment][first_segment][hmac]
