@@ -50,6 +50,7 @@
 #include <crypto/hash.h>
 #include <crypto/sha.h>
 #include <net/seg6.h>
+#include <net/seg6_hmac.h>
 
 #include <asm/uaccess.h>
 
