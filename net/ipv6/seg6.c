@@ -257,6 +257,10 @@ enum {
 	SEG6_ATTR_SEGMENTS,
 	SEG6_ATTR_SEGLEN,
 	SEG6_ATTR_SEGINFO,
+	SEG6_ATTR_SECRET,
+	SEG6_ATTR_SECRETLEN,
+	SEG6_ATTR_ALGID,
+	SEG6_ATTR_HMACINFO,
 	__SEG6_ATTR_MAX,
 };
 
@@ -271,6 +275,10 @@ static struct nla_policy seg6_genl_policy[SEG6_ATTR_MAX + 1] = {
 	[SEG6_ATTR_SEGMENTS] 	= { .type = NLA_BINARY, },
 	[SEG6_ATTR_SEGLEN] 		= { .type = NLA_S32, },
 	[SEG6_ATTR_SEGINFO]		= { .type = NLA_NESTED, },
+	[SEG6_ATTR_SECRET]		= { .type = NLA_BINARY, },
+	[SEG6_ATTR_SECRETLEN]	= { .type = NLA_U8, },
+	[SEG6_ATTR_ALGID]		= { .type = NLA_U8, },
+	[SEG6_ATTR_HMACINFO]	= { .type = NLA_NESTED, },
 };
 
 static struct genl_family seg6_genl_family = {
@@ -288,6 +296,8 @@ enum {
     SEG6_CMD_DELSEG,
     SEG6_CMD_FLUSH,
     SEG6_CMD_DUMP,
+	SEG6_CMD_SETHMAC,
+	SEG6_CMD_DUMPHMAC,
     __SEG6_CMD_MAX,
 };
 
@@ -410,6 +420,52 @@ static int seg6_genl_delseg(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 }
 
+static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	char *secret;
+	u8 hmackeyid;
+	u8 algid;
+	u8 slen;
+	struct seg6_hmac_info *hinfo;
+
+	if (!info->attrs[SEG6_ATTR_HMACKEYID] || !info->attrs[SEG6_ATTR_SECRETLEN] || !info->attrs[SEG6_ATTR_ALGID])
+		return -EINVAL;
+
+	hmackeyid = nla_get_u8(info->attrs[SEG6_ATTR_HMACKEYID]);
+	slen = nla_get_u8(info->attrs[SEG6_ATTR_SECRETLEN]);
+	algid = nla_get_u8(info->attrs[SEG6_ATTR_ALGID]);
+
+	if (hmackeyid == 0)
+		return -EINVAL;
+
+	hinfo = net->ipv6.seg6_hmac_table[hmackeyid];
+
+	if (!slen) {
+		if (!hinfo)
+			return -ENOENT;
+		kfree(hinfo);
+		net->ipv6.seg6_hmac_table[hmackeyid] = NULL;
+		return 0;
+	}
+
+	if (!info->attrs[SEG6_ATTR_SECRET])
+		return -EINVAL;
+
+	secret = (char *)nla_data(info->attrs[SEG6_ATTR_SECRET]);
+
+	if (!hinfo)
+		hinfo = kzalloc(sizeof(*hinfo), GFP_KERNEL);
+
+	memcpy(hinfo->secret, secret, slen);
+	hinfo->slen = slen;
+	hinfo->alg_id = algid;
+
+	net->ipv6.seg6_hmac_table[hmackeyid] = hinfo;
+
+	return 0;
+}
+
 static int seg6_genl_flush(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
@@ -484,6 +540,58 @@ free_msg:
 	return -ENOMEM;
 }
 
+static int seg6_genl_dumphmac(struct sk_buff *skb, struct genl_info *info)
+{
+	struct sk_buff *msg;
+	struct nlattr *nla;
+	struct net *net = genl_info_net(info);
+	struct seg6_hmac_info *hinfo;
+	int i;
+	void *hdr;
+
+	for (i = 0; i < 255; i++) {
+		hinfo = net->ipv6.seg6_hmac_table[i];
+		if (hinfo == NULL)
+			continue;
+
+		msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+		if (!msg)
+			return -ENOMEM;
+
+		hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMPHMAC);
+		if (!hdr)
+			goto free_msg;
+
+		nla = nla_nest_start(msg, SEG6_ATTR_HMACINFO);
+		if (!nla)
+			goto nla_put_failure;
+
+		if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, i))
+			goto nla_put_failure;
+
+		if (nla_put_u8(msg, SEG6_ATTR_SECRETLEN, hinfo->slen))
+			goto nla_put_failure;
+
+		if (nla_put(msg, SEG6_ATTR_SECRET, hinfo->slen, hinfo->secret))
+			goto nla_put_failure;
+
+		if (nla_put_u8(msg, SEG6_ATTR_ALGID, hinfo->alg_id))
+			goto nla_put_failure;
+
+		nla_nest_end(msg, nla);
+		genlmsg_end(msg, hdr);
+		genlmsg_reply(msg, info);
+	}
+
+	return 0;
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+free_msg:
+	nlmsg_free(msg);
+	return -ENOMEM;
+}
+
 static struct genl_ops seg6_genl_ops[] = {
 	{
 		.cmd 	= SEG6_CMD_ADDSEG,
@@ -508,6 +616,18 @@ static struct genl_ops seg6_genl_ops[] = {
 		.doit	= seg6_genl_dump,
 		.policy	= seg6_genl_policy,
 		.flags	= 0,
+	},
+	{
+		.cmd	= SEG6_CMD_SETHMAC,
+		.doit	= seg6_genl_sethmac,
+		.policy = seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd 	= SEG6_CMD_DUMPHMAC,
+		.doit	= seg6_genl_dumphmac,
+		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
 	},
 };
 
