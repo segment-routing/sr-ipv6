@@ -303,6 +303,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	u8 hmac_key_id;
 	int nh, srhlen, ph = 0;
 	struct inet6_dev *idev;
+	struct seg6_hmac_info *hinfo;
 
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
@@ -330,14 +331,21 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		// size with segments + hmac: (last_segment + 4) + 4
 		// [seg1][...]x[last_segment][first_segment][hmac]
 		// end of hdr = x + 2 + 2 + 4
+		char *key;
+		int keylen;
+
 		if (hdr->hdrlen < hdr->last_segment + 2 + 2 + 4) {
 			kfree_skb(skb);
 			return -1;
 		}
 
+		hinfo = net->ipv6.seg6_hmac_table[hmac_key_id];
+		key = hinfo ? hinfo->secret : seg6_hmac_key;
+		keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
+
 		memset(hmac_output, 0, 20);
 
-		if (sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), hdr, &ipv6_hdr(skb)->saddr, hmac_output)) {
+		if (sr_hmac_sha1(key, keylen, hdr, &ipv6_hdr(skb)->saddr, hmac_output)) {
 			kfree_skb(skb);
 			return -1;
 		}

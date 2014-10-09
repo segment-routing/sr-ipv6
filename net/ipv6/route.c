@@ -60,6 +60,7 @@
 #include <net/nexthop.h>
 #include <net/seg6.h>
 #include <net/seg6_table.h>
+#include <net/seg6_hmac.h>
 
 #include <asm/uaccess.h>
 
@@ -3161,6 +3162,13 @@ static int __net_init seg6_init(struct net *net)
 		return 1;
 	}
 
+	net->ipv6.seg6_hmac_table = kzalloc(255*sizeof(struct seg6_hmac_info *), GFP_KERNEL);
+	if (!net->ipv6.seg6_hmac_table) {
+		kfree(net->ipv6.seg6_fib_root);
+		kfree(net->ipv6.seg6_hash);
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -3169,6 +3177,7 @@ static void __net_exit seg6_exit(struct net *net)
 	seg6_flush_segments(net);
 	kfree(net->ipv6.seg6_hash);
 	kfree(net->ipv6.seg6_fib_root);
+	kfree(net->ipv6.seg6_hmac_table);
 }
 
 static struct pernet_operations ip6_segments_ops = {
