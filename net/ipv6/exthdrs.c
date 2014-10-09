@@ -340,6 +340,13 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		}
 
 		hinfo = net->ipv6.seg6_hmac_table[hmac_key_id];
+
+		if (!hinfo && seg6_hmac_strict_key) {
+			printk(KERN_DEBUG "SR-IPv6: hmac_strict_key is set and no key found for keyid 0x%x\n", hmac_key_id);
+			kfree_skb(skb);
+			return -1;
+		}
+
 		key = hinfo ? hinfo->secret : seg6_hmac_key;
 		keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
 
