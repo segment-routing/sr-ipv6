@@ -159,9 +159,18 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 		ipv6_dev_get_saddr(net, skb->dev, &hdr->daddr, IPV6_PREFER_SRC_PUBLIC, &hdr->saddr);
 
 	if (segments->hmackeyid) {
+		char *key;
+		int keylen;
+		struct seg6_hmac_info *hinfo;
+
+		hinfo = net->ipv6.seg6_hmac_table[segments->hmackeyid];
+		key = hinfo ? hinfo->secret : seg6_hmac_key;
+		keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
+
 		sr_set_hmac_key_id(srh, segments->hmackeyid);
 		memset(SEG6_HMAC(srh), 0, 32);
-		sr_hmac_sha1(seg6_hmac_key, strlen(seg6_hmac_key), srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
+
+		sr_hmac_sha1(key, keylen, srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
 	}
 
 	*skb_in = skb;
