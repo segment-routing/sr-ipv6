@@ -34,6 +34,7 @@
 #include <linux/random.h>
 
 int seg6_srh_reversal = 0;
+int seg6_hmac_strict_key = 0;
 
 struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
 {
@@ -235,6 +236,13 @@ static struct ctl_table seg6_table[] = {
 	{
 		.procname 	= "srh_reversal",
 		.data		= &seg6_srh_reversal,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
+	},
+	{
+		.procname	= "hmac_strict_key",
+		.data		= &seg6_hmac_strict_key,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec
