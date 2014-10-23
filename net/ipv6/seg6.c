@@ -474,6 +474,9 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	if (!hinfo)
 		hinfo = kzalloc(sizeof(*hinfo), GFP_KERNEL);
 
+	if (!hinfo)
+		return -ENOMEM;
+
 	memcpy(hinfo->secret, secret, slen);
 	hinfo->slen = slen;
 	hinfo->alg_id = algid;
