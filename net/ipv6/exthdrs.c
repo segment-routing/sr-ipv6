@@ -834,7 +834,7 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 	struct rt0_hdr *phdr, *ihdr;
 	struct ipv6_sr_hdr *sr_phdr, *sr_ihdr;
 	int hops;
-	struct net *net = dev_net(skb->dev);
+	struct net *net = sock_net(skb->sk); // we need to use this because skb->dev might be NULL
 	u8 hmackeyid;
 
 	if (srh) {
