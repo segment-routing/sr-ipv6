@@ -334,7 +334,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		char *key;
 		int keylen;
 
-		if (hdr->hdrlen < hdr->last_segment + 2 + 2 + 4) {
+		if (hdr->hdrlen < hdr->last_segment*2 + 2 + 2 + 4) {
 			kfree_skb(skb);
 			return -1;
 		}
@@ -367,14 +367,14 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	}
 
 looped_back:
-	addr = next_addr = hdr->segments + (hdr->next_segment >> 1);
-	last_addr = hdr->segments + (hdr->last_segment >> 1);
+	addr = next_addr = hdr->segments + hdr->next_segment;
+	last_addr = hdr->segments + hdr->last_segment;
 
 	if (hdr->next_segment != hdr->last_segment) {
 		inc = 1;
 	} else if (memcmp(ipv6_hdr(skb)->daddr.s6_addr, (*last_addr).s6_addr, 16) != 0) {
 		ph = 1;
-		if (sr_get_flags(hdr) & (0x8 | 0x2)) // force cleanup when in tunnel mode
+		if (sr_get_flags(hdr) & (SR6_FLAG_CLEANUP | SR6_FLAG_TUNNEL)) // force cleanup when in tunnel mode
 			cleanup = 1;
 	} else {
 		topid = 1;
@@ -398,13 +398,13 @@ looped_back:
 	}
 
 	if (inc)
-		hdr->next_segment += 2; // + 16 bytes
+		hdr->next_segment++; // + 16 bytes
 
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->ip_summed = CHECKSUM_NONE;
 
 	/* replace source address by local if we are in tunnel mode */
-	if (!ph && sr_get_flags(hdr) & 0x2)
+	if (!ph && sr_get_flags(hdr) & SR6_FLAG_TUNNEL)
 		ipv6_hdr(skb)->saddr = ipv6_hdr(skb)->daddr;
 
 	/* useless if we are tunnel exit but we need to do this before cleanup anyway */
@@ -417,7 +417,7 @@ looped_back:
 	if (cleanup) {
 		srhlen = (hdr->hdrlen + 1) << 3;
 
-		if (sr_get_flags(hdr) & 0x2) {
+		if (sr_get_flags(hdr) & SR6_FLAG_TUNNEL) {
 			skb_pull(skb, sizeof(struct ipv6hdr) + srhlen);
 			skb->network_header += sizeof(struct ipv6hdr) + srhlen;
 		} else {
@@ -843,7 +843,7 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 		sr_phdr = (struct ipv6_sr_hdr *)skb_push(skb, (sr_ihdr->hdrlen + 1) << 3);
 		memcpy(sr_phdr, sr_ihdr, sizeof(struct ipv6_sr_hdr));
 
-		hops = (sr_ihdr->last_segment + 2) >> 1;
+		hops = sr_ihdr->last_segment + 1;
 		memcpy(sr_phdr->segments, sr_ihdr->segments + 1, (hops - 1) * sizeof(struct in6_addr));
 
 		sr_phdr->segments[hops - 1] = **addr_p;

@@ -62,44 +62,37 @@ struct ipv6_sr_hdr {
 	__u8		next_segment;
 	__u8		last_segment;
 
-	__u8		f1;	 // flags + hmac_key_id(high 4)
-	__u8		f2;	 // hmac_key_id(low 4) + policy_flags(high 4)
-	__u8		f3;	 // policy_flags(low 8)
+#if defined(__BIG_ENDIAN_BITFIELD)
+	__u16		flags : 4,
+				pol1_flags : 3,
+				pol2_flags : 3,
+				pol3_flags : 3,
+				pol4_flags : 3;
+#elif defined(__LITTLE_ENDIAN_BITFIELD)
+	__u16		pol4_flags : 3,
+				pol3_flags : 3,
+				pol2_flags : 3,
+				pol1_flags : 3,
+				flags : 4;
+#else
+#error "Please fix <asm/byteorder.h>"
+#endif
+
+	__u8		hmackeyid;
 
 	struct in6_addr segments[0];
 } __attribute__((packed));
 
-static inline void sr_set_flags(struct ipv6_sr_hdr *hdr, u8 flags)
-{
-	hdr->f1 = ((flags & 0x0f) << 4) | (hdr->f1 & 0x0f);
-}
+#define SR6_FLAG_CLEANUP	0x08
+#define	SR6_FLAG_PROTECTED	0x04
+#define SR6_FLAG_TUNNEL		0x02
 
-static inline u8 sr_get_flags(struct ipv6_sr_hdr *hdr)
-{
-	return (hdr->f1 >> 4) & 0x0f;
-}
-
-static inline void sr_set_hmac_key_id(struct ipv6_sr_hdr *hdr, u8 hmackeyid)
-{
-	hdr->f1 = (hdr->f1 & 0xf0) | (hmackeyid >> 4);
-	hdr->f2 = (hmackeyid << 4) | (hdr->f2 & 0x0f);
-}
-
-static inline u8 sr_get_hmac_key_id(struct ipv6_sr_hdr *hdr)
-{
-	return (hdr->f1 << 4) | (hdr->f2 >> 4);
-}
-
-static inline void sr_set_policy_flags(struct ipv6_sr_hdr *hdr, u16 pflags)
-{
-	hdr->f2 = (hdr->f2 & 0xf0) | ((pflags >> 8) & 0x0f);
-	hdr->f3 = (u8)(pflags & 0xff);
-}
-
-static inline u16 sr_get_policy_flags(struct ipv6_sr_hdr *hdr)
-{
-	return ((hdr->f2 & 0x0f) << 8) | hdr->f3;
-}
+#define sr_set_flags(hdr, val) ((hdr)->flags = val)
+#define sr_get_flags(hdr) ((hdr)->flags)
+#define sr_set_hmac_key_id(hdr, val) ((hdr)->hmackeyid = val)
+#define sr_get_hmac_key_id(hdr) ((hdr)->hmackeyid)
+#define sr_set_policy_flags(hdr, x, val) ((hdr)->pol##x##_flags = val)
+#define sr_get_policy_flags(hdr, x) ((hdr)->pol##x##_flags)
 
 struct ipv6_opt_hdr {
 	__u8 		nexthdr;

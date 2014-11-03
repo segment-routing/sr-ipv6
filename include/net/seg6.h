@@ -46,6 +46,6 @@ extern int seg6_hmac_strict_key;
 #define SEG6_HDR_BYTELEN(seglist) (8 + 16*((seglist)->seg_size + 1) + ((seglist)->hmackeyid ? 32 : 0))
 #define SEG6_HDR_LEN(seglist) ((SEG6_HDR_BYTELEN(seglist) >> 3) - 1)
 
-#define SEG6_SRH_SEGSIZE(srh) (((srh)->last_segment >> 1) + 2)
+#define SEG6_SRH_SEGSIZE(srh) ((srh)->last_segment + 2)
 
 #endif
