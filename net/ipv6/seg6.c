@@ -66,15 +66,20 @@ EXPORT_SYMBOL(seg6_get_segments);
  */
 void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 {
+	int flags = 0;
+
 	srh->hdrlen = SEG6_HDR_LEN(segments);
 	srh->type = IPV6_SRCRT_TYPE_4;
 	srh->next_segment = 0;
-	srh->last_segment = (segments->seg_size - 1) << 1;
-	srh->f1 = 0;
-	srh->f2 = 0;
-	srh->f3 = 0;
+	srh->last_segment = segments->seg_size - 1;
+
 	if (segments->cleanup)
-		sr_set_flags(srh, 0x8);
+		flags |= SR6_FLAG_CLEANUP;
+	if (segments->tunnel)
+		flags |= SR6_FLAG_TUNNEL;
+
+	sr_set_flags(srh, flags);
+
 	if (segments->hmackeyid)
 		sr_set_hmac_key_id(srh, segments->hmackeyid);
 
@@ -87,7 +92,7 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to)
 {
 	int seg_size;
 
-	hdr_to->hdrlen = hdr_from->last_segment + 4;
+	hdr_to->hdrlen = hdr_from->last_segment*2 + 4;
 	hdr_to->type = IPV6_SRCRT_TYPE_4;
 	hdr_to->last_segment = hdr_from->last_segment;
 
@@ -106,6 +111,7 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	struct seg6_list *segments;
 	int srhlen, tot_len;
 	struct ipv6_sr_hdr *srh;
+	int flags = 0;
 
 	skb = *skb_in;
 	hdr = ipv6_hdr(skb);
@@ -129,6 +135,8 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	hdr = ipv6_hdr(skb);
 	srh = (void *)hdr + sizeof(struct ipv6hdr);
 
+	memset(srh, 0, tot_len);
+
 	if (segments->tunnel)
 		srh->nexthdr = NEXTHDR_IPV6;
 	else
@@ -140,14 +148,14 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 	srh->hdrlen = SEG6_HDR_LEN(segments);
 	srh->type = IPV6_SRCRT_TYPE_4;
 	srh->next_segment = 0;
-	srh->last_segment = (segments->seg_size - 1) << 1;
-	srh->f1 = 0;
-	srh->f2 = 0;
-	srh->f3 = 0;
+	srh->last_segment = segments->seg_size - 1;
+
 	if (segments->cleanup)
-		sr_set_flags(srh, 0x8);
+		flags |= SR6_FLAG_CLEANUP;
 	if (segments->tunnel)
-		sr_set_flags(srh, sr_get_flags(srh) | 0x2);
+		flags |= SR6_FLAG_TUNNEL;
+
+	sr_set_flags(srh, flags);
 
 	memcpy(srh->segments, &segments->segments[1], (segments->seg_size - 1)*sizeof(struct in6_addr));
 	srh->segments[segments->seg_size - 1] = hdr->daddr;
@@ -377,8 +385,8 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 
 	tmp->id = seglist_id;
 	tmp->seg_size = seg_len;
-	tmp->cleanup = (flags & 0x8) ? 1 : 0;
-	tmp->tunnel = (flags & 0x2) ? 1 : 0;
+	tmp->cleanup = (flags & SR6_FLAG_CLEANUP) ? 1 : 0;
+	tmp->tunnel = (flags & SR6_FLAG_TUNNEL) ? 1 : 0;
 	tmp->hmackeyid = nla_get_u8(info->attrs[SEG6_ATTR_HMACKEYID]);
 	tmp->segments = kmalloc(seg_len*sizeof(struct in6_addr), GFP_KERNEL);
 	if (!tmp->segments) {

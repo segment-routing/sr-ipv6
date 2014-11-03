@@ -9,7 +9,7 @@
 #include <linux/route.h>
 #include <net/seg6.h>
 
-#define SEG6_HMAC(srh) ((srh)->segments + (((srh)->last_segment + 4) >> 1))
+#define SEG6_HMAC(srh) ((srh)->segments + ((srh)->last_segment + 2))
 #define SEG6_HMAC_MAX_SIZE  64
 
 struct seg6_hmac_info {
