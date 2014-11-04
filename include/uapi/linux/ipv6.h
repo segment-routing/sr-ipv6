@@ -63,17 +63,15 @@ struct ipv6_sr_hdr {
 	__u8		last_segment;
 
 #if defined(__BIG_ENDIAN_BITFIELD)
-	__u16		flags : 4,
-				pol1_flags : 3,
-				pol2_flags : 3,
-				pol3_flags : 3,
-				pol4_flags : 3;
+	__u8		flags : 4,
+				pol1_flags : 4;
+	__u8		pol2_flags : 4,
+				pol3_flags : 4;
 #elif defined(__LITTLE_ENDIAN_BITFIELD)
-	__u16		pol4_flags : 3,
-				pol3_flags : 3,
-				pol2_flags : 3,
-				pol1_flags : 3,
+	__u8		pol1_flags : 4,
 				flags : 4;
+	__u8		pol3_flags : 4,
+				pol2_flags : 4;
 #else
 #error "Please fix <asm/byteorder.h>"
 #endif
