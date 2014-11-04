@@ -293,7 +293,7 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 /* called with rcu_read_lock() */
 static int ipv6_srh_rcv(struct sk_buff *skb)
 {
-	struct inet6_skb_parm *opt = IP6CB(skb); // unused for now (useless?)
+	struct inet6_skb_parm *opt = IP6CB(skb);
 	struct in6_addr *addr = NULL, *next_addr = NULL, *last_addr = NULL;
 	struct ipv6_sr_hdr *hdr;
 	struct net *net = dev_net(skb->dev);
@@ -327,10 +327,11 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	}
 
 	if (idev->cnf.seg6_require_hmac >= 0 && hmac_key_id != 0) {
-		// segments size = (last_segment + 2)
-		// size with segments + hmac: (last_segment + 4) + 4
-		// [seg1][...]x[last_segment][first_segment][hmac]
-		// end of hdr = x + 2 + 2 + 4
+		/*
+		 * segments size (in 8-byte counts) = last_segment*2 + 2 (i.e. end of last segment entry)
+		 * size with segments + hmac: last_segment*2 + 2 + 4 (i.e. previous + first segment + hmac field)
+		 * [seg_2][...][seg_n][seg_1][hmac]
+		 */
 		char *key;
 		int keylen;
 
@@ -374,7 +375,8 @@ looped_back:
 		inc = 1;
 	} else if (memcmp(ipv6_hdr(skb)->daddr.s6_addr, (*last_addr).s6_addr, 16) != 0) {
 		ph = 1;
-		if (sr_get_flags(hdr) & (SR6_FLAG_CLEANUP | SR6_FLAG_TUNNEL)) // force cleanup when in tunnel mode
+		/* cleanup forced when in tunnel mode */
+		if (sr_get_flags(hdr) & (SR6_FLAG_CLEANUP | SR6_FLAG_TUNNEL))
 			cleanup = 1;
 	} else {
 		topid = 1;
@@ -398,7 +400,7 @@ looped_back:
 	}
 
 	if (inc)
-		hdr->next_segment++; // + 16 bytes
+		hdr->next_segment++;
 
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->ip_summed = CHECKSUM_NONE;
@@ -488,7 +490,7 @@ static int ipv6_rthdr_rcv(struct sk_buff *skb)
 
 	hdr = (struct ipv6_rt_hdr *)skb_transport_header(skb);
 
-	/* XXX segment routing */
+	/* segment routing */
 	if (hdr->type == IPV6_SRCRT_TYPE_4)
 		return ipv6_srh_rcv(skb);
 
@@ -834,8 +836,10 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 	struct rt0_hdr *phdr, *ihdr;
 	struct ipv6_sr_hdr *sr_phdr, *sr_ihdr;
 	int hops;
-	struct net *net = sock_net(skb->sk); // we need to use this because skb->dev might be NULL
 	u8 hmackeyid;
+
+	/* skb->dev might be NULL, hence we fetch net namespace from socket */
+	struct net *net = sock_net(skb->sk);
 
 	if (srh) {
 		sr_ihdr = (struct ipv6_sr_hdr *)opt;
