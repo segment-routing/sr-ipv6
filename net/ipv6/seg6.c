@@ -83,6 +83,16 @@ void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 	if (segments->hmackeyid)
 		sr_set_hmac_key_id(srh, segments->hmackeyid);
 
+	/*
+	 * The number of segments allocated for @srh is segments->seg_size + 1
+	 * as defined in macro SEG6_HDR_BYTELEN. This is explained by the fact that
+	 * @segments contains only the intermediate segments, without the last segment
+	 * (i.e. the original destination).
+	 * This allows us to already place the first segment at the end of the list
+	 * as required by the specifications, so that we can track who is the first
+	 * segment.
+	 */
+
 	memcpy(srh->segments, segments->segments, (segments->seg_size)*sizeof(struct in6_addr));
 	srh->segments[segments->seg_size] = segments->segments[0];
 }
@@ -128,8 +138,13 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 		return 0;
 	}
 
+	/*
+	 * Move the IPv6 header up to let place for the SRH and, if in tunnel mode,
+	 * the inner IPv6 header.
+	 */
 	memmove(skb_network_header(skb) - tot_len, skb_network_header(skb), sizeof(struct ipv6hdr));
 
+	/* update offsets and pointers */
 	skb_push(skb, tot_len);
 	skb->network_header -= tot_len;
 	hdr = ipv6_hdr(skb);
@@ -137,6 +152,10 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 
 	memset(srh, 0, tot_len);
 
+	/*
+	 * If we are in tunnel mode, the header next to the SRH is the original
+	 * IPv6 header
+	 */
 	if (segments->tunnel)
 		srh->nexthdr = NEXTHDR_IPV6;
 	else
