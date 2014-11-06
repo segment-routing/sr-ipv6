@@ -3169,6 +3169,8 @@ static int __net_init seg6_init(struct net *net)
 		return 1;
 	}
 
+	pr_info("SR-IPv6: Release v0.01");
+
 	return 0;
 }
 
