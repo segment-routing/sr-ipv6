@@ -40,13 +40,9 @@ struct seg6_info {
 
 	int list_size;
 	struct seg6_list *list;
-	int list_mode;
 
 	struct hlist_node seg_chain;
 };
-
-#define SEG6_LMODE_SPLIT_RR		0
-#define SEG6_LMODE_MIRROR		1
 
 extern void seg6_flush_segments(struct net *net);
 extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
