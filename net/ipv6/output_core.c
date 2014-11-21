@@ -121,7 +121,7 @@ int ip6_local_out(struct sk_buff *skb)
 
 	err = __ip6_local_out(skb);
 	if (likely(err == 1)) {
-		if (seg6_process_skb(net, &skb))
+		if (seg6_process_skb(net, skb))
 			ip6_route_me_harder(skb);
 
 		err = dst_output(skb);

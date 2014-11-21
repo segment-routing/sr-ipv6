@@ -6,9 +6,9 @@
  *
  *
  *  This program is free software; you can redistribute it and/or
- *      modify it under the terms of the GNU General Public License
- *      as published by the Free Software Foundation; either version
- *      2 of the License, or (at your option) any later version.
+ *	  modify it under the terms of the GNU General Public License
+ *	  as published by the Free Software Foundation; either version
+ *	  2 of the License, or (at your option) any later version.
  */
 
 #include <linux/errno.h>
@@ -49,12 +49,10 @@
 int seg6_srh_reversal = 0;
 int seg6_hmac_strict_key = 0;
 
-struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
+struct seg6_info *seg6_segment_lookup(struct net *net, struct in6_addr *dst)
 {
 	struct seg6_info *info;
 	struct s6ib_node *node;
-	struct seg6_list *list_node;
-	int i, id;
 
 	node = seg6_route_lookup(net->ipv6.seg6_fib_root, dst);
 	if (!node || !node->s6info)
@@ -65,12 +63,43 @@ struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
 	if (info->list_size == 0)
 		return NULL;
 
+	return info;
+}
+EXPORT_SYMBOL(seg6_segment_lookup);
+
+struct seg6_list *seg6_pick_segments(struct seg6_info *info)
+{
+	int i, id;
+	struct seg6_list *list_node;
+
+	/* should never happen */
+	if (info->list_size == 0) {
+		printk(KERN_DEBUG "SR-IPv6: warning: info->list_size == 0 in seg6_pick_segments() for dst %pI6\n", &info->dst);
+		return NULL;
+	}
+
 	id = prandom_u32()%info->list_size;
 	list_node = info->list;
 	for (i = 0; i < id; i++)
 		list_node = list_node->next;
 
 	return list_node;
+}
+EXPORT_SYMBOL(seg6_pick_segments);
+
+struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
+{
+	struct seg6_info *seg_info;
+	struct seg6_list *segments;
+
+	seg_info = seg6_segment_lookup(net, dst);
+
+	if (seg_info == NULL)
+		return 0;
+
+	segments = seg6_pick_segments(seg_info);
+
+	return segments;
 }
 EXPORT_SYMBOL(seg6_get_segments);
 
@@ -124,31 +153,19 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to)
 	memcpy(hdr_to->segments, hdr_from->segments + (seg_size - 1), sizeof(struct in6_addr));
 }
 
-/*
- * Push SRH in matching forwarded packets
- */
-int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
+int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments)
 {
 	struct ipv6hdr *hdr;
-	struct sk_buff *skb;
-	struct seg6_list *segments;
 	int srhlen, tot_len;
 	struct ipv6_sr_hdr *srh;
 	int flags = 0;
-
-	skb = *skb_in;
-	hdr = ipv6_hdr(skb);
-	segments = seg6_get_segments(net, &hdr->daddr);
-
-	if (segments == NULL)
-		return 0;
 
 	srhlen = SEG6_HDR_BYTELEN(segments);
 	tot_len = srhlen + (segments->tunnel ? sizeof(struct ipv6hdr) : 0);
 
 	if (pskb_expand_head(skb, tot_len, 0, GFP_ATOMIC)) {
 		printk(KERN_DEBUG "SR6: seg6_process_skb: cannot expand head\n");
-		return 0;
+		return -1;
 	}
 
 	/*
@@ -213,7 +230,28 @@ int seg6_process_skb(struct net *net, struct sk_buff **skb_in)
 		sr_hmac_sha1(key, keylen, srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
 	}
 
-	*skb_in = skb;
+	return 0;
+}
+
+/*
+ * Push SRH in matching forwarded packets
+ */
+int seg6_process_skb(struct net *net, struct sk_buff *skb)
+{
+	struct ipv6hdr *hdr;
+	struct seg6_info *seg_info;
+	struct seg6_list *segments;
+
+	hdr = ipv6_hdr(skb);
+	seg_info = seg6_segment_lookup(net, &hdr->daddr);
+
+	if (seg_info == NULL)
+		return 0;
+
+	segments = seg6_pick_segments(seg_info);
+
+	if (__seg6_process_skb(net, skb, segments) < 0)
+		return 0;
 
 	return 1;
 }
@@ -348,14 +386,14 @@ static struct genl_family seg6_genl_family = {
 };
 
 enum {
-    SEG6_CMD_UNSPEC,
-    SEG6_CMD_ADDSEG,
-    SEG6_CMD_DELSEG,
-    SEG6_CMD_FLUSH,
-    SEG6_CMD_DUMP,
+	SEG6_CMD_UNSPEC,
+	SEG6_CMD_ADDSEG,
+	SEG6_CMD_DELSEG,
+	SEG6_CMD_FLUSH,
+	SEG6_CMD_DUMP,
 	SEG6_CMD_SETHMAC,
 	SEG6_CMD_DUMPHMAC,
-    __SEG6_CMD_MAX,
+	__SEG6_CMD_MAX,
 };
 
 #define SEG6_CMD_MAX (__SEG6_CMD_MAX - 1)
