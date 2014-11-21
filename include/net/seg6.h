@@ -40,13 +40,18 @@ struct seg6_info {
 
 	int list_size;
 	struct seg6_list *list;
+	int list_mode;
 
 	struct hlist_node seg_chain;
 };
 
+#define SEG6_LMODE_SPLIT_RR		0
+#define SEG6_LMODE_MIRROR		1
+
 extern void seg6_flush_segments(struct net *net);
 extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
-extern int seg6_process_skb(struct net *net, struct sk_buff **skb);
+extern int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments);
+extern int seg6_process_skb(struct net *net, struct sk_buff *skb);
 extern struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst);
 extern void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh);
 extern void seg6_init_sysctl(void);

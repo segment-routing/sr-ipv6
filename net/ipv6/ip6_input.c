@@ -180,7 +180,7 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	}
 
 	/* SRH processing */
-	seg6_process_skb(net, &skb);
+	seg6_process_skb(net, skb);
 	skb_dst_drop(skb);
 
 	rcu_read_unlock();
