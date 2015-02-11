@@ -294,7 +294,7 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 static int ipv6_srh_rcv(struct sk_buff *skb)
 {
 	struct inet6_skb_parm *opt = IP6CB(skb);
-	struct in6_addr *addr = NULL, *next_addr = NULL, *last_addr = NULL;
+	struct in6_addr *addr = NULL, *last_addr = NULL;
 	struct ipv6_sr_hdr *hdr;
 	struct net *net = dev_net(skb->dev);
 	int inc = 0, cleanup = 0, topid = 0;
@@ -335,7 +335,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		char *key;
 		int keylen;
 
-		if (hdr->hdrlen < hdr->last_segment*2 + 2 + 2 + 4) {
+		if (hdr->hdrlen < hdr->first_segment*2 + 2 + 4) {
 			kfree_skb(skb);
 			return -1;
 		}
@@ -368,12 +368,11 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	}
 
 looped_back:
-	addr = next_addr = hdr->segments + hdr->next_segment;
-	last_addr = hdr->segments + hdr->last_segment;
+	last_addr = hdr->segments;
 
-	if (hdr->next_segment != hdr->last_segment) {
+	if (hdr->segments_left > 0) {
 		inc = 1;
-	} else if (memcmp(ipv6_hdr(skb)->daddr.s6_addr, (*last_addr).s6_addr, 16) != 0) {
+	} else if (hdr->segments_left == 1) {
 		ph = 1;
 		/* cleanup forced when in tunnel mode */
 		if (sr_get_flags(hdr) & (SR6_FLAG_CLEANUP | SR6_FLAG_TUNNEL))
@@ -400,7 +399,9 @@ looped_back:
 	}
 
 	if (inc)
-		hdr->next_segment++;
+		hdr->segments_left--;
+
+	addr = hdr->segments + hdr->segments_left;
 
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->ip_summed = CHECKSUM_NONE;
@@ -847,12 +848,11 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 		sr_phdr = (struct ipv6_sr_hdr *)skb_push(skb, (sr_ihdr->hdrlen + 1) << 3);
 		memcpy(sr_phdr, sr_ihdr, sizeof(struct ipv6_sr_hdr));
 
-		hops = sr_ihdr->last_segment + 1;
-		memcpy(sr_phdr->segments, sr_ihdr->segments + 1, (hops - 1) * sizeof(struct in6_addr));
+		hops = sr_ihdr->first_segment + 1;
+		memcpy(sr_phdr->segments + 1, sr_ihdr->segments + 1, (hops - 1) * sizeof(struct in6_addr));
 
-		sr_phdr->segments[hops - 1] = **addr_p;
-		sr_phdr->segments[hops] = sr_ihdr->segments[0];
-		*addr_p = sr_ihdr->segments;
+		sr_phdr->segments[0] = **addr_p;
+		*addr_p = &sr_ihdr->segments[hops - 1];
 
 		if ((hmackeyid = sr_get_hmac_key_id(sr_phdr))) {
 			char *key;
@@ -1080,10 +1080,12 @@ struct in6_addr *fl6_update_dst(struct flowi6 *fl6,
 		return NULL;
 
 	*orig = fl6->daddr;
-	if (opt->srcrt_srh)
-		fl6->daddr = *((struct ipv6_sr_hdr *)opt->srcrt)->segments;
-	else
+	if (opt->srcrt_srh) {
+		struct ipv6_sr_hdr *srhdr = (struct ipv6_sr_hdr *)opt->srcrt;
+		fl6->daddr = srhdr->segments[srhdr->first_segment];
+	} else {
 		fl6->daddr = *((struct rt0_hdr *)opt->srcrt)->addr;
+	}
 	return orig;
 }
 EXPORT_SYMBOL_GPL(fl6_update_dst);

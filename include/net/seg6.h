@@ -52,7 +52,7 @@ extern struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst
 extern void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh);
 extern void seg6_init_sysctl(void);
 extern void seg6_nl_init(void);
-extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to);
+extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse);
 
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
@@ -60,6 +60,6 @@ extern int seg6_hmac_strict_key;
 #define SEG6_HDR_BYTELEN(seglist) (8 + 16*((seglist)->seg_size + 1) + ((seglist)->hmackeyid ? 32 : 0))
 #define SEG6_HDR_LEN(seglist) ((SEG6_HDR_BYTELEN(seglist) >> 3) - 1)
 
-#define SEG6_SRH_SEGSIZE(srh) ((srh)->last_segment + 2)
+#define SEG6_SRH_SEGSIZE(srh) ((srh)->first_segment + 1)
 
 #endif
