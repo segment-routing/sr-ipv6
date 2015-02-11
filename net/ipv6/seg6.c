@@ -49,6 +49,14 @@
 int seg6_srh_reversal = 0;
 int seg6_hmac_strict_key = 0;
 
+static inline void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src, int size)
+{
+	int i;
+
+	for (i = 0; i < size; i++)
+		memcpy(&dst[size - i - 1], &src[i], sizeof(struct in6_addr));
+}
+
 struct seg6_info *seg6_segment_lookup(struct net *net, struct in6_addr *dst)
 {
 	struct seg6_info *info;
@@ -112,8 +120,8 @@ void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 
 	srh->hdrlen = SEG6_HDR_LEN(segments);
 	srh->type = IPV6_SRCRT_TYPE_4;
-	srh->next_segment = 0;
-	srh->last_segment = segments->seg_size - 1;
+	srh->segments_left = segments->seg_size;
+	srh->first_segment = segments->seg_size;
 
 	if (segments->cleanup)
 		flags |= SR6_FLAG_CLEANUP;
@@ -135,22 +143,28 @@ void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 	 * segment.
 	 */
 
-	memcpy(srh->segments, segments->segments, (segments->seg_size)*sizeof(struct in6_addr));
-	srh->segments[segments->seg_size] = segments->segments[0];
+	copy_segments_reverse(srh->segments + 1, segments->segments, segments->seg_size);
+
+	/* This will be the DA, let's fill with magic val in the meantime */
+	memset(srh->segments, 0x42, sizeof(struct in6_addr));
 }
 EXPORT_SYMBOL(seg6_build_tmpl_srh);
 
-void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to)
+void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse)
 {
 	int seg_size;
 
-	hdr_to->hdrlen = hdr_from->last_segment*2 + 4;
+	hdr_to->hdrlen = hdr_from->first_segment*2 + 4;
 	hdr_to->type = IPV6_SRCRT_TYPE_4;
-	hdr_to->last_segment = hdr_from->last_segment;
+	hdr_to->first_segment = hdr_from->first_segment;
 
 	seg_size = SEG6_SRH_SEGSIZE(hdr_from);
-	memcpy(&hdr_to->segments[1], hdr_from->segments, (seg_size - 1)*sizeof(struct in6_addr));
-	memcpy(hdr_to->segments, hdr_from->segments + (seg_size - 1), sizeof(struct in6_addr));
+	if (reverse)
+		copy_segments_reverse(hdr_to->segments + 1, hdr_from->segments + 1, seg_size - 1);
+	else
+		memcpy(hdr_to->segments + 1, hdr_from->segments + 1, (seg_size - 1)*sizeof(struct in6_addr));
+
+	memset(hdr_to->segments, 0x42, sizeof(struct in6_addr));
 }
 
 int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments)
@@ -196,8 +210,8 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 
 	srh->hdrlen = SEG6_HDR_LEN(segments);
 	srh->type = IPV6_SRCRT_TYPE_4;
-	srh->next_segment = 0;
-	srh->last_segment = segments->seg_size - 1;
+	srh->segments_left = segments->seg_size;
+	srh->first_segment = segments->seg_size;
 
 	if (segments->cleanup)
 		flags |= SR6_FLAG_CLEANUP;
@@ -206,9 +220,8 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 
 	sr_set_flags(srh, flags);
 
-	memcpy(srh->segments, &segments->segments[1], (segments->seg_size - 1)*sizeof(struct in6_addr));
-	srh->segments[segments->seg_size - 1] = hdr->daddr;
-	srh->segments[segments->seg_size] = segments->segments[0];
+	copy_segments_reverse(srh->segments + 1, segments->segments, segments->seg_size);
+	srh->segments[0] = hdr->daddr;
 
 	hdr->daddr = segments->segments[0];
 

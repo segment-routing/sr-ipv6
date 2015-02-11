@@ -59,8 +59,8 @@ struct ipv6_sr_hdr {
 	__u8		nexthdr;
 	__u8		hdrlen;			 // 8-octet units
 	__u8		type;
-	__u8		next_segment;
-	__u8		last_segment;
+	__u8		segments_left;
+	__u8		first_segment;
 
 #if defined(__BIG_ENDIAN_BITFIELD)
 	__u8		flags : 4,
