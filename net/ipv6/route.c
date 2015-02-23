@@ -1011,6 +1011,23 @@ static struct dst_entry *ip6_route_input_lookup(struct net *net,
 	return fib6_rule_lookup(net, fl6, flags, ip6_pol_route_input);
 }
 
+void ip6_route_input_gw(struct sk_buff *skb, struct in6_addr *gateway)
+{
+	const struct ipv6hdr *iph = ipv6_hdr(skb);
+	struct net *net = dev_net(skb->dev);
+	int flags = RT6_LOOKUP_F_HAS_SADDR;
+	struct flowi6 fl6 = {
+		.flowi6_iif = skb->dev->ifindex,
+		.daddr = *gateway,
+		.saddr = iph->saddr,
+		.flowlabel = ip6_flowinfo(iph),
+		.flowi6_mark = skb->mark,
+		.flowi6_proto = iph->nexthdr,
+	};
+
+	skb_dst_set(skb, ip6_route_input_lookup(net, skb->dev, &fl6, flags));
+}
+
 void ip6_route_input(struct sk_buff *skb)
 {
 	const struct ipv6hdr *iph = ipv6_hdr(skb);
@@ -3169,7 +3186,9 @@ static int __net_init seg6_init(struct net *net)
 		return 1;
 	}
 
-	pr_info("SR-IPv6: Release v0.01");
+	net->ipv6.seg6_bib_head = NULL;
+
+	pr_info("SR-IPv6: Release v0.02\n");
 
 	return 0;
 }

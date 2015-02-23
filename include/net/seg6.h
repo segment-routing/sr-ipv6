@@ -44,6 +44,19 @@ struct seg6_info {
 	struct hlist_node seg_chain;
 };
 
+/* Binding-SID Information Base */
+#define SEG6_BIND_NEXT		0
+#define SEG6_BIND_ROUTE		1
+#define SEG6_BIND_INSERT	2
+#define SEG6_BIND_TRANSLATE	3
+struct seg6_bib_node {
+	struct seg6_bib_node *next;
+	struct in6_addr segment;
+
+	int op;
+	struct in6_addr nexthop;
+};
+
 extern void seg6_flush_segments(struct net *net);
 extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
 extern int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments);
@@ -53,6 +66,7 @@ extern void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *
 extern void seg6_init_sysctl(void);
 extern void seg6_nl_init(void);
 extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse);
+extern struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment);
 
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;

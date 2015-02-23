@@ -294,16 +294,18 @@ static int ipv6_destopt_rcv(struct sk_buff *skb)
 static int ipv6_srh_rcv(struct sk_buff *skb)
 {
 	struct inet6_skb_parm *opt = IP6CB(skb);
-	struct in6_addr *addr = NULL, *last_addr = NULL;
+	struct in6_addr *addr = NULL, *last_addr = NULL, *active_addr = NULL;
 	struct ipv6_sr_hdr *hdr;
 	struct net *net = dev_net(skb->dev);
-	int inc = 0, cleanup = 0, topid = 0;
+	int cleanup = 0;
 	u32 hmac_output[5];
 	u8 *hmac_input;
 	u8 hmac_key_id;
 	int nh, srhlen, ph = 0;
 	struct inet6_dev *idev;
 	struct seg6_hmac_info *hinfo;
+	struct seg6_bib_node *bib_node;
+	struct in6_addr *neigh_rt = NULL;
 
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
@@ -371,17 +373,13 @@ looped_back:
 	last_addr = hdr->segments;
 
 	if (hdr->segments_left > 0) {
-		inc = 1;
-	} else if (hdr->segments_left == 1) {
-		ph = 1;
-		/* cleanup forced when in tunnel mode */
-		if (sr_get_flags(hdr) & (SR6_FLAG_CLEANUP | SR6_FLAG_TUNNEL))
-			cleanup = 1;
+		if (hdr->segments_left == 1) {
+			ph = 1;
+			/* cleanup forced when in tunnel mode */
+			if (sr_get_flags(hdr) & (SR6_FLAG_CLEANUP | SR6_FLAG_TUNNEL))
+				cleanup = 1;
+		}
 	} else {
-		topid = 1;
-	}
-
-	if (topid) {
 		opt->lastopt = opt->srcrt = skb_network_header_len(skb);
 		skb->transport_header += (hdr->hdrlen + 1) << 3;
 		opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
@@ -397,18 +395,22 @@ looped_back:
 		}
 		hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 	}
-
-	if (inc)
-		hdr->segments_left--;
-
-	addr = hdr->segments + hdr->segments_left;
-
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->ip_summed = CHECKSUM_NONE;
+
+	active_addr = hdr->segments + hdr->segments_left;
+	hdr->segments_left--;
+	addr = hdr->segments + hdr->segments_left;
 
 	/* replace source address by local if we are in tunnel mode */
 	if (!ph && sr_get_flags(hdr) & SR6_FLAG_TUNNEL)
 		ipv6_hdr(skb)->saddr = ipv6_hdr(skb)->daddr;
+
+	/* check if active segment is a Binding-SID */
+	if ((bib_node = seg6_bib_lookup(net, active_addr))) {
+		if (bib_node->op == SEG6_BIND_ROUTE)
+			neigh_rt = &bib_node->nexthop;
+	}
 
 	/* useless if we are tunnel exit but we need to do this before cleanup anyway */
 	ipv6_hdr(skb)->daddr = *addr;
@@ -435,7 +437,12 @@ looped_back:
 	}
 
 	skb_dst_drop(skb);
-	ip6_route_input(skb);
+
+	if (neigh_rt)
+		ip6_route_input_gw(skb, neigh_rt);
+	else
+		ip6_route_input(skb);
+
 	if (skb_dst(skb)->error) {
 		dst_input(skb);
 		return -1;

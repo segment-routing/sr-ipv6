@@ -57,6 +57,58 @@ static inline void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *
 		memcpy(&dst[size - i - 1], &src[i], sizeof(struct in6_addr));
 }
 
+struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment)
+{
+	struct seg6_bib_node *tmp;
+
+	for (tmp = net->ipv6.seg6_bib_head; tmp; tmp = tmp->next) {
+		if (memcmp(&tmp->segment, segment, 16) == 0)
+			return tmp;
+	}
+
+	return NULL;
+}
+
+int seg6_bib_insert(struct net *net, struct seg6_bib_node *bib)
+{
+	struct seg6_bib_node *tmp;
+
+	if (net->ipv6.seg6_bib_head == NULL) {
+		net->ipv6.seg6_bib_head = bib;
+		return 0;
+	}
+
+	for (tmp = net->ipv6.seg6_bib_head; tmp; tmp = tmp->next) {
+		if (memcmp(&tmp->segment, &bib->segment, 16) == 0)
+			return -EEXIST;
+
+		if (tmp->next == NULL) {
+			tmp->next = bib;
+			break;
+		}
+	}
+
+	return 0;
+}
+
+int seg6_bib_remove(struct net *net, struct in6_addr *addr)
+{
+	struct seg6_bib_node *tmp, *prev = NULL;
+
+	for (tmp = net->ipv6.seg6_bib_head; tmp; tmp = tmp->next) {
+		if (memcmp(&tmp->segment, addr, 16) == 0) {
+			if (prev)
+				prev->next = tmp->next;
+			else
+				net->ipv6.seg6_bib_head = tmp->next;
+			return 1;
+		}
+		prev = tmp;
+	}
+
+	return 0;
+}
+
 struct seg6_info *seg6_segment_lookup(struct net *net, struct in6_addr *dst)
 {
 	struct seg6_info *info;
@@ -369,6 +421,8 @@ enum {
 	SEG6_ATTR_SECRETLEN,
 	SEG6_ATTR_ALGID,
 	SEG6_ATTR_HMACINFO,
+	SEG6_ATTR_BIND_NEXTHOP,
+	SEG6_ATTR_BINDINFO,
 	__SEG6_ATTR_MAX,
 };
 
@@ -387,6 +441,8 @@ static struct nla_policy seg6_genl_policy[SEG6_ATTR_MAX + 1] = {
 	[SEG6_ATTR_SECRETLEN]	= { .type = NLA_U8, },
 	[SEG6_ATTR_ALGID]		= { .type = NLA_U8, },
 	[SEG6_ATTR_HMACINFO]	= { .type = NLA_NESTED, },
+	[SEG6_ATTR_BIND_NEXTHOP] = { .type = NLA_BINARY, .len = sizeof(struct in6_addr) },
+	[SEG6_ATTR_BINDINFO]	= {	.type = NLA_NESTED, },
 };
 
 static struct genl_family seg6_genl_family = {
@@ -406,6 +462,10 @@ enum {
 	SEG6_CMD_DUMP,
 	SEG6_CMD_SETHMAC,
 	SEG6_CMD_DUMPHMAC,
+	SEG6_CMD_ADDBIND,
+	SEG6_CMD_DELBIND,
+	SEG6_CMD_FLUSHBIND,
+	SEG6_CMD_DUMPBIND,
 	__SEG6_CMD_MAX,
 };
 
@@ -703,6 +763,108 @@ free_msg:
 	return -ENOMEM;
 }
 
+static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	struct in6_addr *dst, *nexthop;
+	struct seg6_bib_node *bib;
+	int err;
+
+	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_BIND_NEXTHOP])
+		return -EINVAL;
+
+	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
+	nexthop = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_BIND_NEXTHOP]);
+
+	bib = kzalloc(sizeof(*bib), GFP_KERNEL);
+
+	if (!bib)
+		return -ENOMEM;
+
+	memcpy(&bib->segment, dst, 16);
+	bib->op = SEG6_BIND_ROUTE;
+	memcpy(&bib->nexthop, nexthop, 16);
+
+	err = seg6_bib_insert(net, bib);
+
+	return err;
+}
+
+static int seg6_genl_delbind(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	struct in6_addr *dst;
+	struct seg6_bib_node *bib;
+
+	if (!info->attrs[SEG6_ATTR_DST])
+		return -EINVAL;
+
+	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
+
+	bib = seg6_bib_lookup(net, dst);
+	if (!bib)
+		return -ENOENT;
+
+	seg6_bib_remove(net, &bib->segment);
+	kfree(bib);
+
+	return 0;
+}
+
+static int seg6_genl_flushbind(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	struct seg6_bib_node *bib;
+
+	while ((bib = net->ipv6.seg6_bib_head)) {
+		net->ipv6.seg6_bib_head = bib->next;
+		kfree(bib);
+	}
+
+	return 0;
+}
+
+static int seg6_genl_dumpbind(struct sk_buff *skb, struct genl_info *info)
+{
+	struct sk_buff *msg;
+	struct nlattr *nla;
+	struct net *net = genl_info_net(info);
+	void *hdr;
+	struct seg6_bib_node *bib;
+
+	for (bib = net->ipv6.seg6_bib_head; bib; bib = bib->next) {
+		msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+		if (!msg)
+			return -ENOMEM;
+
+		hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMPBIND);
+		if (!hdr)
+			goto free_msg;
+
+		nla = nla_nest_start(msg, SEG6_ATTR_BINDINFO);
+		if (!nla)
+			goto nla_put_failure;
+
+		if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), &bib->segment))
+			goto nla_put_failure;
+
+		if (nla_put(msg, SEG6_ATTR_BIND_NEXTHOP, sizeof(struct in6_addr), &bib->nexthop))
+			goto nla_put_failure;
+
+		nla_nest_end(msg, nla);
+		genlmsg_end(msg, hdr);
+		genlmsg_reply(msg, info);
+	}
+
+	return 0;
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+free_msg:
+	nlmsg_free(msg);
+	return -ENOMEM;
+}
+
 static struct genl_ops seg6_genl_ops[] = {
 	{
 		.cmd 	= SEG6_CMD_ADDSEG,
@@ -737,6 +899,30 @@ static struct genl_ops seg6_genl_ops[] = {
 	{
 		.cmd 	= SEG6_CMD_DUMPHMAC,
 		.doit	= seg6_genl_dumphmac,
+		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd 	= SEG6_CMD_ADDBIND,
+		.doit	= seg6_genl_addbind,
+		.policy = seg6_genl_policy,
+		.flags 	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd	= SEG6_CMD_DELBIND,
+		.doit	= seg6_genl_delbind,
+		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd	= SEG6_CMD_FLUSHBIND,
+		.doit	= seg6_genl_flushbind,
+		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd	= SEG6_CMD_DUMPBIND,
+		.doit	= seg6_genl_dumpbind,
 		.policy	= seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},

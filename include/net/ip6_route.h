@@ -52,6 +52,8 @@ static inline unsigned int rt6_flags2srcprefs(int flags)
 }
 
 
+void ip6_route_input_gw(struct sk_buff *skb, struct in6_addr *gateway);
+
 void ip6_route_input(struct sk_buff *skb);
 
 struct dst_entry *ip6_route_output(struct net *net, const struct sock *sk,
