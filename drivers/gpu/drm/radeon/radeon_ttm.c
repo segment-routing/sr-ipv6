@@ -196,7 +196,7 @@ static void radeon_evict_flags(struct ttm_buffer_object *bo,
 	rbo = container_of(bo, struct radeon_bo, tbo);
 	switch (bo->mem.mem_type) {
 	case TTM_PL_VRAM:
-		if (rbo->rdev->ring[RADEON_RING_TYPE_GFX_INDEX].ready == false)
+		if (rbo->rdev->ring[radeon_copy_ring_index(rbo->rdev)].ready == false)
 			radeon_ttm_placement_from_domain(rbo, RADEON_GEM_DOMAIN_CPU);
 		else
 			radeon_ttm_placement_from_domain(rbo, RADEON_GEM_DOMAIN_GTT);
@@ -574,6 +574,10 @@ static void radeon_ttm_tt_unpin_userptr(struct ttm_tt *ttm)
 	int write = !(gtt->userflags & RADEON_GEM_USERPTR_READONLY);
 	enum dma_data_direction direction = write ?
 		DMA_BIDIRECTIONAL : DMA_TO_DEVICE;
+
+	/* double check that we don't free the table twice */
+	if (!ttm->sg->sgl)
+		return;
 
 	/* free the sg table and pages again */
 	dma_unmap_sg(rdev->dev, ttm->sg->sgl, ttm->sg->nents, direction);

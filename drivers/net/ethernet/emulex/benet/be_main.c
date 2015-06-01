@@ -887,7 +887,8 @@ static struct sk_buff *be_insert_vlan_in_pkt(struct be_adapter *adapter,
 	}
 
 	if (vlan_tag) {
-		skb = __vlan_put_tag(skb, htons(ETH_P_8021Q), vlan_tag);
+		skb = vlan_insert_tag_set_proto(skb, htons(ETH_P_8021Q),
+						vlan_tag);
 		if (unlikely(!skb))
 			return skb;
 		skb->vlan_tci = 0;
@@ -896,7 +897,8 @@ static struct sk_buff *be_insert_vlan_in_pkt(struct be_adapter *adapter,
 	/* Insert the outer VLAN, if any */
 	if (adapter->qnq_vid) {
 		vlan_tag = adapter->qnq_vid;
-		skb = __vlan_put_tag(skb, htons(ETH_P_8021Q), vlan_tag);
+		skb = vlan_insert_tag_set_proto(skb, htons(ETH_P_8021Q),
+						vlan_tag);
 		if (unlikely(!skb))
 			return skb;
 		if (skip_hw_vlan)
@@ -4427,9 +4429,11 @@ static void be_del_vxlan_port(struct net_device *netdev, sa_family_t sa_family,
 		 be16_to_cpu(port));
 }
 
-static bool be_gso_check(struct sk_buff *skb, struct net_device *dev)
+static netdev_features_t be_features_check(struct sk_buff *skb,
+					   struct net_device *dev,
+					   netdev_features_t features)
 {
-	return vxlan_gso_check(skb);
+	return vxlan_features_check(skb, features);
 }
 #endif
 
@@ -4460,7 +4464,7 @@ static const struct net_device_ops be_netdev_ops = {
 #ifdef CONFIG_BE2NET_VXLAN
 	.ndo_add_vxlan_port	= be_add_vxlan_port,
 	.ndo_del_vxlan_port	= be_del_vxlan_port,
-	.ndo_gso_check		= be_gso_check,
+	.ndo_features_check	= be_features_check,
 #endif
 };
 
