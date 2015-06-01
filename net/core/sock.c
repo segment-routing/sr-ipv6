@@ -136,6 +136,11 @@
 
 #include <trace/events/sock.h>
 
+#ifdef CONFIG_MPTCP
+#include <net/mptcp.h>
+#include <net/inet_common.h>
+#endif
+
 #ifdef CONFIG_INET
 #include <net/tcp.h>
 #endif
@@ -280,7 +285,7 @@ static const char *const af_family_slock_key_strings[AF_MAX+1] = {
   "slock-AF_IEEE802154", "slock-AF_CAIF" , "slock-AF_ALG"      ,
   "slock-AF_NFC"   , "slock-AF_VSOCK"    ,"slock-AF_MAX"
 };
-static const char *const af_family_clock_key_strings[AF_MAX+1] = {
+char *const af_family_clock_key_strings[AF_MAX+1] = {
   "clock-AF_UNSPEC", "clock-AF_UNIX"     , "clock-AF_INET"     ,
   "clock-AF_AX25"  , "clock-AF_IPX"      , "clock-AF_APPLETALK",
   "clock-AF_NETROM", "clock-AF_BRIDGE"   , "clock-AF_ATMPVC"   ,
@@ -301,7 +306,7 @@ static const char *const af_family_clock_key_strings[AF_MAX+1] = {
  * sk_callback_lock locking rules are per-address-family,
  * so split the lock classes by using a per-AF key:
  */
-static struct lock_class_key af_callback_keys[AF_MAX];
+struct lock_class_key af_callback_keys[AF_MAX];
 
 /* Take into consideration the size of the struct sk_buff overhead in the
  * determination of these values, since that is non-constant across
@@ -421,8 +426,6 @@ static void sock_warn_obsolete_bsdism(const char *name)
 		warned++;
 	}
 }
-
-#define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
 
 static void sock_disable_timestamp(struct sock *sk, unsigned long flags)
 {
@@ -1232,8 +1235,25 @@ lenout:
  *
  * (We also register the sk_lock with the lock validator.)
  */
-static inline void sock_lock_init(struct sock *sk)
+void sock_lock_init(struct sock *sk)
 {
+#ifdef CONFIG_MPTCP
+	/* Reclassify the lock-class for subflows */
+	if (sk->sk_type == SOCK_STREAM && sk->sk_protocol == IPPROTO_TCP)
+		if (mptcp(tcp_sk(sk)) || tcp_sk(sk)->is_master_sk) {
+			sock_lock_init_class_and_name(sk, "slock-AF_INET-MPTCP",
+						      &meta_slock_key,
+						      "sk_lock-AF_INET-MPTCP",
+						      &meta_key);
+
+			/* We don't yet have the mptcp-point.
+			 * Thus we still need inet_sock_destruct
+			 */
+			sk->sk_destruct = inet_sock_destruct;
+			return;
+		}
+#endif
+
 	sock_lock_init_class_and_name(sk,
 			af_family_slock_key_strings[sk->sk_family],
 			af_family_slock_keys + sk->sk_family,
@@ -1280,7 +1300,7 @@ void sk_prot_clear_portaddr_nulls(struct sock *sk, int size)
 }
 EXPORT_SYMBOL(sk_prot_clear_portaddr_nulls);
 
-static struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority,
+struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority,
 		int family)
 {
 	struct sock *sk;
@@ -1495,6 +1515,7 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 		newsk->sk_userlocks	= sk->sk_userlocks & ~SOCK_BINDPORT_LOCK;
 
 		sock_reset_flag(newsk, SOCK_DONE);
+		sock_reset_flag(newsk, SOCK_MPTCP);
 		skb_queue_head_init(&newsk->sk_error_queue);
 
 		filter = rcu_dereference_protected(newsk->sk_filter, 1);
