@@ -409,7 +409,15 @@ looped_back:
 	/* check if active segment is a Binding-SID */
 	if ((bib_node = seg6_bib_lookup(net, active_addr))) {
 		if (bib_node->op == SEG6_BIND_ROUTE)
-			neigh_rt = &bib_node->nexthop;
+			neigh_rt = (struct in6_addr *)bib_node->data;
+		if (bib_node->op == SEG6_BIND_SERVICE && !(sr_get_flags(hdr) & SR6_FLAG_TUNNEL)) {
+			int rc;
+			rc = seg6_nl_packet_in(net, skb, *(u32 *)bib_node->data);
+			if (rc < 0)
+				seg6_bib_remove(net, active_addr);
+			kfree_skb(skb);
+			return -1;
+		}
 	}
 
 	/* useless if we are tunnel exit but we need to do this before cleanup anyway */

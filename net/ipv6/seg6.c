@@ -421,28 +421,36 @@ enum {
 	SEG6_ATTR_SECRETLEN,
 	SEG6_ATTR_ALGID,
 	SEG6_ATTR_HMACINFO,
-	SEG6_ATTR_BIND_NEXTHOP,
+	SEG6_ATTR_BIND_OP,
+	SEG6_ATTR_BIND_DATA,
+	SEG6_ATTR_BIND_DATALEN,
 	SEG6_ATTR_BINDINFO,
+	SEG6_ATTR_PACKET_DATA,
+	SEG6_ATTR_PACKET_LEN,
 	__SEG6_ATTR_MAX,
 };
 
 #define SEG6_ATTR_MAX (__SEG6_ATTR_MAX - 1)
 
 static struct nla_policy seg6_genl_policy[SEG6_ATTR_MAX + 1] = {
-	[SEG6_ATTR_DST] 		= { .type = NLA_BINARY, .len = sizeof(struct in6_addr) },
-	[SEG6_ATTR_DSTLEN]		= { .type = NLA_S32, },
-	[SEG6_ATTR_SEGLISTID] 	= { .type = NLA_U16, },
-	[SEG6_ATTR_FLAGS] 		= { .type = NLA_U32, },
-	[SEG6_ATTR_HMACKEYID] 	= { .type = NLA_U8, },
-	[SEG6_ATTR_SEGMENTS] 	= { .type = NLA_BINARY, },
-	[SEG6_ATTR_SEGLEN] 		= { .type = NLA_S32, },
-	[SEG6_ATTR_SEGINFO]		= { .type = NLA_NESTED, },
-	[SEG6_ATTR_SECRET]		= { .type = NLA_BINARY, },
-	[SEG6_ATTR_SECRETLEN]	= { .type = NLA_U8, },
-	[SEG6_ATTR_ALGID]		= { .type = NLA_U8, },
-	[SEG6_ATTR_HMACINFO]	= { .type = NLA_NESTED, },
-	[SEG6_ATTR_BIND_NEXTHOP] = { .type = NLA_BINARY, .len = sizeof(struct in6_addr) },
-	[SEG6_ATTR_BINDINFO]	= {	.type = NLA_NESTED, },
+	[SEG6_ATTR_DST] 			= { .type = NLA_BINARY, .len = sizeof(struct in6_addr) },
+	[SEG6_ATTR_DSTLEN]			= { .type = NLA_S32, },
+	[SEG6_ATTR_SEGLISTID] 		= { .type = NLA_U16, },
+	[SEG6_ATTR_FLAGS] 			= { .type = NLA_U32, },
+	[SEG6_ATTR_HMACKEYID] 		= { .type = NLA_U8, },
+	[SEG6_ATTR_SEGMENTS] 		= { .type = NLA_BINARY, },
+	[SEG6_ATTR_SEGLEN] 			= { .type = NLA_S32, },
+	[SEG6_ATTR_SEGINFO]			= { .type = NLA_NESTED, },
+	[SEG6_ATTR_SECRET]			= { .type = NLA_BINARY, },
+	[SEG6_ATTR_SECRETLEN]		= { .type = NLA_U8, },
+	[SEG6_ATTR_ALGID]			= { .type = NLA_U8, },
+	[SEG6_ATTR_HMACINFO]		= { .type = NLA_NESTED, },
+	[SEG6_ATTR_BIND_OP]			= { .type = NLA_U8, },
+	[SEG6_ATTR_BIND_DATA]		= { .type = NLA_BINARY, },
+	[SEG6_ATTR_BIND_DATALEN]	= { .type = NLA_S32, },
+	[SEG6_ATTR_BINDINFO]		= {	.type = NLA_NESTED, },
+	[SEG6_ATTR_PACKET_DATA]		= { .type = NLA_BINARY, },
+	[SEG6_ATTR_PACKET_LEN]		= { .type = NLA_S32, },
 };
 
 static struct genl_family seg6_genl_family = {
@@ -466,10 +474,101 @@ enum {
 	SEG6_CMD_DELBIND,
 	SEG6_CMD_FLUSHBIND,
 	SEG6_CMD_DUMPBIND,
+	SEG6_CMD_PACKET_IN,
+	SEG6_CMD_PACKET_OUT,
 	__SEG6_CMD_MAX,
 };
 
 #define SEG6_CMD_MAX (__SEG6_CMD_MAX - 1)
+
+/*
+ * @skb's SRH has undergone segleft dec
+ * Currently, tunnel mode is not supported
+ *
+ * We need to change DA to orig DA. When packet will be received in PACKET_OUT,
+ * then we just need to overwrite DA to active seg.
+ * SRH is not stripped, userland just has to follow header chain until transport
+ * is reached.
+ *
+ * /!\ We are in atomic context.
+ *
+ */
+int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, u32 portid)
+{
+	struct sk_buff *skb2, *msg;
+	struct ipv6_sr_hdr *srhdr;
+	struct in6_addr *orig_da;
+	void *hdr;
+	int rc;
+
+	skb2 = skb_copy(skb, GFP_ATOMIC); /* linearize */
+	srhdr = (struct ipv6_sr_hdr *)skb_transport_header(skb2);
+
+	orig_da = srhdr->segments;
+	ipv6_hdr(skb2)->daddr = *orig_da;
+
+	skb_push(skb2, skb2->data - skb_network_header(skb2));
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_ATOMIC);
+	if (!msg)
+		goto err;
+
+	hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_PACKET_IN);
+	if (!hdr)
+		goto err_free;
+
+	if (nla_put(msg, SEG6_ATTR_PACKET_DATA, skb2->len, skb_network_header(skb2)))
+		goto nla_put_failure;
+
+	if (nla_put_s32(msg, SEG6_ATTR_PACKET_LEN, skb2->len))
+		goto nla_put_failure;
+
+	genlmsg_end(msg, hdr);
+
+	rc = genlmsg_unicast(net, msg, portid);
+
+	kfree_skb(skb2);
+	return rc;
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+err_free:
+	nlmsg_free(msg);
+err:
+	kfree_skb(skb2);
+	return -ENOMEM;
+}
+
+static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	struct sk_buff *msg;
+	char *data;
+	int len;
+	struct ipv6_sr_hdr *srhdr;
+	struct ipv6hdr *hdr;
+
+	return -ENOSYS;
+
+/*	if (!info->attrs[SEG6_ATTR_PACKET_DATA] || !info->attrs[SEG6_ATTR_PACKET_LEN])
+		return -EINVAL;
+
+	len = nla_get_s32(info->attrs[SEG6_ATTR_PACKET_LEN]);
+	data = (char *)nla_data(info->attrs[SEG6_ATTR_PACKET_DATA]);
+
+	msg = alloc_skb(len, GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	skb_put(msg, len);
+	skb_reset_network_header(msg);
+	skb_reset_transport_header(msg);
+
+	memcpy(msg->data, data, len);
+
+	hdr = ipv6_hdr(msg);*/
+
+}
 
 static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 {
@@ -766,24 +865,45 @@ free_msg:
 static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
-	struct in6_addr *dst, *nexthop;
+	struct in6_addr *dst;
 	struct seg6_bib_node *bib;
-	int err;
+	int err, op, datalen;
 
-	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_BIND_NEXTHOP])
+	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_BIND_OP])
 		return -EINVAL;
 
 	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
-	nexthop = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_BIND_NEXTHOP]);
+	op = nla_get_u8(info->attrs[SEG6_ATTR_BIND_OP]);
+
+	if (!info->attrs[SEG6_ATTR_BIND_DATA] || !info->attrs[SEG6_ATTR_BIND_DATALEN])
+		return -EINVAL;
 
 	bib = kzalloc(sizeof(*bib), GFP_KERNEL);
-
 	if (!bib)
 		return -ENOMEM;
 
+	bib->op = op;
+
+	if (op == SEG6_BIND_SERVICE) {
+		bib->data = kzalloc(sizeof(u32), GFP_KERNEL);
+		if (!bib->data) {
+			kfree(bib);
+			return -ENOMEM;
+		}
+		*(u32 *)bib->data = info->snd_portid;
+		bib->datalen = sizeof(u32);
+	} else {
+		datalen = nla_get_s32(info->attrs[SEG6_ATTR_BIND_DATALEN]);
+		bib->data = kzalloc(datalen, GFP_KERNEL);
+		if (!bib->data) {
+			kfree(bib);
+			return -ENOMEM;
+		}
+		bib->datalen = datalen;
+		memcpy(bib->data, nla_data(info->attrs[SEG6_ATTR_BIND_DATA]), datalen);
+	}
+
 	memcpy(&bib->segment, dst, 16);
-	bib->op = SEG6_BIND_ROUTE;
-	memcpy(&bib->nexthop, nexthop, 16);
 
 	err = seg6_bib_insert(net, bib);
 
@@ -848,7 +968,13 @@ static int seg6_genl_dumpbind(struct sk_buff *skb, struct genl_info *info)
 		if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), &bib->segment))
 			goto nla_put_failure;
 
-		if (nla_put(msg, SEG6_ATTR_BIND_NEXTHOP, sizeof(struct in6_addr), &bib->nexthop))
+		if (nla_put(msg, SEG6_ATTR_BIND_DATA, bib->datalen, bib->data))
+			goto nla_put_failure;
+
+		if (nla_put_s32(msg, SEG6_ATTR_BIND_DATALEN, bib->datalen))
+			goto nla_put_failure;
+
+		if (nla_put_u8(msg, SEG6_ATTR_BIND_OP, bib->op))
 			goto nla_put_failure;
 
 		nla_nest_end(msg, nla);
@@ -924,6 +1050,12 @@ static struct genl_ops seg6_genl_ops[] = {
 		.cmd	= SEG6_CMD_DUMPBIND,
 		.doit	= seg6_genl_dumpbind,
 		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd	= SEG6_CMD_PACKET_OUT,
+		.doit	= seg6_genl_packet_out,
+		.policy = seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},
 };

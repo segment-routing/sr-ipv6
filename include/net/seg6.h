@@ -45,16 +45,25 @@ struct seg6_info {
 };
 
 /* Binding-SID Information Base */
-#define SEG6_BIND_NEXT		0
-#define SEG6_BIND_ROUTE		1
-#define SEG6_BIND_INSERT	2
-#define SEG6_BIND_TRANSLATE	3
+#define SEG6_BIND_NEXT		0	/* aka no-op, classical sr processing */
+#define SEG6_BIND_ROUTE		1	/* force route through given next hop */
+#define SEG6_BIND_INSERT	2	/* push segments in srh */
+#define SEG6_BIND_TRANSLATE	3	/* translate source/dst ? */
+#define SEG6_BIND_SERVICE	4	/* send packet to virtual service */
 struct seg6_bib_node {
 	struct seg6_bib_node *next;
 	struct in6_addr segment;
 
 	int op;
-	struct in6_addr nexthop;
+	void *data;
+	int datalen;
+	/*
+	 * NEXT: 		NULL
+	 * ROUTE: 		struct in6_addr *
+	 * INSERT:		<todo>
+	 * TRANSLATE:	<todo>
+	 * SERVICE:		u32 *
+	 */
 };
 
 extern void seg6_flush_segments(struct net *net);
@@ -67,6 +76,8 @@ extern void seg6_init_sysctl(void);
 extern void seg6_nl_init(void);
 extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse);
 extern struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment);
+extern int seg6_bib_remove(struct net *net, struct in6_addr *addr);
+extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, u32 portid);
 
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
