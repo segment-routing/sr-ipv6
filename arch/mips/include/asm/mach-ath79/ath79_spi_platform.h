@@ -16,8 +16,15 @@ struct ath79_spi_platform_data {
 	unsigned	num_chipselect;
 };
 
+enum ath79_spi_cs_type {
+	ATH79_SPI_CS_TYPE_INTERNAL,
+	ATH79_SPI_CS_TYPE_GPIO,
+};
+
 struct ath79_spi_controller_data {
-	unsigned	gpio;
+	enum ath79_spi_cs_type cs_type;
+	unsigned cs_line;
+	bool is_flash;
 };
 
 #endif /* _ATH79_SPI_PLATFORM_H */

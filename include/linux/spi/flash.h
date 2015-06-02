@@ -24,6 +24,7 @@ struct flash_platform_data {
 	unsigned int	nr_parts;
 
 	char		*type;
+	const char	**part_probes;
 
 	/* we'll likely add more ... use JEDEC IDs, etc */
 };

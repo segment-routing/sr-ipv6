@@ -508,6 +508,12 @@ extern struct spi_master *spi_busnum_to_master(u16 busnum);
 
 /*---------------------------------------------------------------------------*/
 
+enum spi_transfer_type {
+	SPI_TRANSFER_GENERIC = 0,
+	SPI_TRANSFER_FLASH_READ_CMD,
+	SPI_TRANSFER_FLASH_READ_DATA,
+};
+
 /*
  * I/O INTERFACE between SPI controller and protocol drivers
  *
@@ -620,12 +626,16 @@ struct spi_transfer {
 	unsigned	cs_change:1;
 	unsigned	tx_nbits:3;
 	unsigned	rx_nbits:3;
+	unsigned	verify:1;
+	unsigned	fast_write:1;
 #define	SPI_NBITS_SINGLE	0x01 /* 1bit transfer */
 #define	SPI_NBITS_DUAL		0x02 /* 2bits transfer */
 #define	SPI_NBITS_QUAD		0x04 /* 4bits transfer */
 	u8		bits_per_word;
 	u16		delay_usecs;
 	u32		speed_hz;
+	enum spi_transfer_type type;
+	bool dummy;
 
 	struct list_head transfer_list;
 };
@@ -665,6 +675,7 @@ struct spi_message {
 	struct spi_device	*spi;
 
 	unsigned		is_dma_mapped:1;
+	unsigned		fast_read:1;
 
 	/* REVISIT:  we might want a flag affecting the behavior of the
 	 * last transfer ... allowing things like "read 16 bit length L"

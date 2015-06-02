@@ -25,7 +25,9 @@
 #include <asm/mach-ath79/ath79.h>
 #include "common.h"
 
-static void __iomem *ath79_gpio_base;
+void __iomem *ath79_gpio_base;
+EXPORT_SYMBOL_GPL(ath79_gpio_base);
+
 static unsigned long ath79_gpio_count;
 static DEFINE_SPINLOCK(ath79_gpio_lock);
 
@@ -146,7 +148,8 @@ static void __iomem *ath79_gpio_get_function_reg(void)
 	    soc_is_ar913x() ||
 	    soc_is_ar933x())
 		reg = AR71XX_GPIO_REG_FUNC;
-	else if (soc_is_ar934x())
+	else if (soc_is_ar934x() ||
+		 soc_is_qca956x())
 		reg = AR934X_GPIO_REG_FUNC;
 	else
 		BUG();
@@ -178,6 +181,34 @@ void ath79_gpio_function_disable(u32 mask)
 	ath79_gpio_function_setup(0, mask);
 }
 
+void __init ath79_gpio_output_select(unsigned gpio, u8 val)
+{
+	void __iomem *base = ath79_gpio_base;
+	unsigned long flags;
+	unsigned int reg;
+	u32 t, s;
+
+	BUG_ON(!soc_is_ar934x());
+
+	if (gpio >= AR934X_GPIO_COUNT)
+		return;
+
+	reg = AR934X_GPIO_REG_OUT_FUNC0 + 4 * (gpio / 4);
+	s = 8 * (gpio % 4);
+
+	spin_lock_irqsave(&ath79_gpio_lock, flags);
+
+	t = __raw_readl(base + reg);
+	t &= ~(0xff << s);
+	t |= val << s;
+	__raw_writel(t, base + reg);
+
+	/* flush write */
+	(void) __raw_readl(base + reg);
+
+	spin_unlock_irqrestore(&ath79_gpio_lock, flags);
+}
+
 void __init ath79_gpio_init(void)
 {
 	int err;
@@ -194,14 +225,19 @@ void __init ath79_gpio_init(void)
 		ath79_gpio_count = AR933X_GPIO_COUNT;
 	else if (soc_is_ar934x())
 		ath79_gpio_count = AR934X_GPIO_COUNT;
+	else if (soc_is_qca953x())
+		ath79_gpio_count = QCA953X_GPIO_COUNT;
 	else if (soc_is_qca955x())
 		ath79_gpio_count = QCA955X_GPIO_COUNT;
+	else if (soc_is_qca956x())
+		ath79_gpio_count = QCA956X_GPIO_COUNT;
 	else
 		BUG();
 
 	ath79_gpio_base = ioremap_nocache(AR71XX_GPIO_BASE, AR71XX_GPIO_SIZE);
 	ath79_gpio_chip.ngpio = ath79_gpio_count;
-	if (soc_is_ar934x() || soc_is_qca955x()) {
+	if (soc_is_ar934x() || soc_is_qca953x() || soc_is_qca955x() ||
+	    soc_is_qca956x()) {
 		ath79_gpio_chip.direction_input = ar934x_gpio_direction_input;
 		ath79_gpio_chip.direction_output = ar934x_gpio_direction_output;
 	}

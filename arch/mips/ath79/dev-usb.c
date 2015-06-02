@@ -37,6 +37,8 @@ static struct usb_ehci_pdata ath79_ehci_pdata_v1 = {
 static struct usb_ehci_pdata ath79_ehci_pdata_v2 = {
 	.caps_offset		= 0x100,
 	.has_tt			= 1,
+	.qca_force_host_mode	= 1,
+	.qca_force_16bit_ptw	= 1,
 };
 
 static void __init ath79_usb_register(const char *name, int id,
@@ -159,6 +161,9 @@ static void __init ar913x_usb_setup(void)
 	ath79_device_reset_clear(AR913X_RESET_USB_PHY);
 	mdelay(10);
 
+	ath79_ehci_pdata_v2.qca_force_host_mode	= 0;
+	ath79_ehci_pdata_v2.qca_force_16bit_ptw	= 0;
+
 	ath79_usb_register("ehci-platform", -1,
 			   AR913X_EHCI_BASE, AR913X_EHCI_SIZE,
 			   ATH79_CPU_IRQ(3),
@@ -182,14 +187,34 @@ static void __init ar933x_usb_setup(void)
 			   &ath79_ehci_pdata_v2, sizeof(ath79_ehci_pdata_v2));
 }
 
-static void __init ar934x_usb_setup(void)
+static void enable_tx_tx_idp_violation_fix(unsigned base)
 {
-	u32 bootstrap;
+	void __iomem *phy_reg;
+	u32 t;
 
-	bootstrap = ath79_reset_rr(AR934X_RESET_REG_BOOTSTRAP);
-	if (bootstrap & AR934X_BOOTSTRAP_USB_MODE_DEVICE)
+	phy_reg = ioremap(base, 4);
+	if (!phy_reg)
 		return;
 
+	t = ioread32(phy_reg);
+	t &= ~0xff;
+	t |= 0x58;
+	iowrite32(t, phy_reg);
+
+	iounmap(phy_reg);
+}
+
+static void ar934x_usb_reset_notifier(struct platform_device *pdev)
+{
+	if (pdev->id != -1)
+		return;
+
+	enable_tx_tx_idp_violation_fix(0x18116c94);
+	dev_info(&pdev->dev, "TX-TX IDP fix enabled\n");
+}
+
+static void __init ar934x_usb_setup(void)
+{
 	ath79_device_reset_set(AR934X_RESET_USBSUS_OVERRIDE);
 	udelay(1000);
 
@@ -202,14 +227,40 @@ static void __init ar934x_usb_setup(void)
 	ath79_device_reset_clear(AR934X_RESET_USB_HOST);
 	udelay(1000);
 
+	if (ath79_soc_rev >= 3)
+		ath79_ehci_pdata_v2.reset_notifier = ar934x_usb_reset_notifier;
+
 	ath79_usb_register("ehci-platform", -1,
 			   AR934X_EHCI_BASE, AR934X_EHCI_SIZE,
 			   ATH79_CPU_IRQ(3),
 			   &ath79_ehci_pdata_v2, sizeof(ath79_ehci_pdata_v2));
 }
 
+static void qca955x_usb_reset_notifier(struct platform_device *pdev)
+{
+	u32 base;
+
+	switch (pdev->id) {
+	case 0:
+		base = 0x18116c94;
+		break;
+
+	case 1:
+		base = 0x18116e54;
+		break;
+
+	default:
+		return;
+	}
+
+	enable_tx_tx_idp_violation_fix(base);
+	dev_info(&pdev->dev, "TX-TX IDP fix enabled\n");
+}
+
 static void __init qca955x_usb_setup(void)
 {
+	ath79_ehci_pdata_v2.reset_notifier = qca955x_usb_reset_notifier;
+
 	ath79_usb_register("ehci-platform", 0,
 			   QCA955X_EHCI0_BASE, QCA955X_EHCI_SIZE,
 			   ATH79_IP3_IRQ(0),
@@ -217,6 +268,19 @@ static void __init qca955x_usb_setup(void)
 
 	ath79_usb_register("ehci-platform", 1,
 			   QCA955X_EHCI1_BASE, QCA955X_EHCI_SIZE,
+			   ATH79_IP3_IRQ(1),
+			   &ath79_ehci_pdata_v2, sizeof(ath79_ehci_pdata_v2));
+}
+
+static void __init qca956x_usb_setup(void)
+{
+	ath79_usb_register("ehci-platform", 0,
+			   QCA956X_EHCI0_BASE, QCA956X_EHCI_SIZE,
+			   ATH79_IP3_IRQ(0),
+			   &ath79_ehci_pdata_v2, sizeof(ath79_ehci_pdata_v2));
+
+	ath79_usb_register("ehci-platform", 1,
+			   QCA956X_EHCI1_BASE, QCA956X_EHCI_SIZE,
 			   ATH79_IP3_IRQ(1),
 			   &ath79_ehci_pdata_v2, sizeof(ath79_ehci_pdata_v2));
 }
@@ -237,6 +301,8 @@ void __init ath79_register_usb(void)
 		ar934x_usb_setup();
 	else if (soc_is_qca955x())
 		qca955x_usb_setup();
+	else if (soc_is_qca9561())
+		qca956x_usb_setup();
 	else
 		BUG();
 }

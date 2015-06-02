@@ -233,6 +233,9 @@ config LZMA_COMPRESS
 config LZMA_DECOMPRESS
     tristate
 
+config RLE_DECOMPRESS
+	tristate
+
 #
 # These all provide a common interface (hence the apparent duplication with
 # ZLIB_INFLATE; DECOMPRESS_GZIP is just a wrapper.)

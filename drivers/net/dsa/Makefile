@@ -1,4 +1,5 @@
 obj-$(CONFIG_NET_DSA_MV88E6060) += mv88e6060.o
+obj-$(CONFIG_NET_DSA_MV88E6063) += mv88e6063.o
 obj-$(CONFIG_NET_DSA_MV88E6XXX) += mv88e6xxx_drv.o
 mv88e6xxx_drv-y += mv88e6xxx.o
 ifdef CONFIG_NET_DSA_MV88E6123_61_65

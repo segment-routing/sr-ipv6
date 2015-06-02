@@ -48,6 +48,14 @@ struct ehci_platform_priv {
 
 static const char hcd_name[] = "ehci-platform";
 
+static void ehci_platform_reset_notifier(struct usb_hcd *hcd)
+{
+	struct platform_device *pdev = to_platform_device(hcd->self.controller);
+	struct usb_ehci_pdata *pdata = pdev->dev.platform_data;
+
+	pdata->reset_notifier(pdev);
+}
+
 static int ehci_platform_reset(struct usb_hcd *hcd)
 {
 	struct platform_device *pdev = to_platform_device(hcd->self.controller);
@@ -228,6 +236,13 @@ static int ehci_platform_probe(struct platform_device *dev)
 		ehci->big_endian_mmio = 1;
 	if (pdata->ignore_oc)
 		ehci->ignore_oc = 1;
+	if (pdata->qca_force_host_mode)
+		ehci->qca_force_host_mode = 1;
+	if (pdata->qca_force_16bit_ptw)
+		ehci->qca_force_16bit_ptw = 1;
+
+	if (pdata->reset_notifier)
+		ehci->reset_notifier = ehci_platform_reset_notifier;
 
 #ifndef CONFIG_USB_EHCI_BIG_ENDIAN_MMIO
 	if (ehci->big_endian_mmio) {

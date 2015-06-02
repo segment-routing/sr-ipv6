@@ -114,10 +114,14 @@ static inline void ath79_wdt_disable(void)
 
 static int ath79_wdt_set_timeout(int val)
 {
-	if (val < 1 || val > max_timeout)
+	if (val < 1)
 		return -EINVAL;
 
-	timeout = val;
+	if (val > max_timeout)
+		timeout = max_timeout;
+	else
+		timeout = val;
+
 	ath79_wdt_keepalive();
 
 	return 0;

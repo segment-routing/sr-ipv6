@@ -13,6 +13,7 @@
  */
 
 #include <linux/init.h>
+#include <linux/export.h>
 #include <linux/pci.h>
 #include <linux/resource.h>
 #include <linux/platform_device.h>
@@ -24,6 +25,9 @@
 static int (*ath79_pci_plat_dev_init)(struct pci_dev *dev);
 static const struct ath79_pci_irq *ath79_pci_irq_map __initdata;
 static unsigned ath79_pci_nr_irqs __initdata;
+
+static unsigned long (*__ath79_pci_swizzle_b)(unsigned long port);
+static unsigned long (*__ath79_pci_swizzle_w)(unsigned long port);
 
 static const struct ath79_pci_irq ar71xx_pci_irq_map[] __initconst = {
 	{
@@ -64,6 +68,21 @@ static const struct ath79_pci_irq qca955x_pci_irq_map[] __initconst = {
 	},
 };
 
+static const struct ath79_pci_irq qca956x_pci_irq_map[] __initconst = {
+	{
+		.bus    = 0,
+		.slot   = 0,
+		.pin    = 1,
+		.irq    = ATH79_PCI_IRQ(0),
+	},
+	{
+		.bus    = 1,
+		.slot   = 0,
+		.pin    = 1,
+		.irq    = ATH79_PCI_IRQ(1),
+	},
+};
+
 int __init pcibios_map_irq(const struct pci_dev *dev, uint8_t slot, uint8_t pin)
 {
 	int irq = -1;
@@ -82,6 +101,9 @@ int __init pcibios_map_irq(const struct pci_dev *dev, uint8_t slot, uint8_t pin)
 		} else if (soc_is_qca955x()) {
 			ath79_pci_irq_map = qca955x_pci_irq_map;
 			ath79_pci_nr_irqs = ARRAY_SIZE(qca955x_pci_irq_map);
+		} else if (soc_is_qca9561()) {
+			ath79_pci_irq_map = qca956x_pci_irq_map;
+			ath79_pci_nr_irqs = ARRAY_SIZE(qca956x_pci_irq_map);
 		} else {
 			pr_crit("pci %s: invalid irq map\n",
 				pci_name((struct pci_dev *) dev));
@@ -212,12 +234,50 @@ ath79_register_pci_ar724x(int id,
 	return pdev;
 }
 
+static inline bool ar71xx_is_pci_addr(unsigned long port)
+{
+	unsigned long phys = CPHYSADDR(port);
+
+	return (phys >= AR71XX_PCI_MEM_BASE &&
+		phys < AR71XX_PCI_MEM_BASE + AR71XX_PCI_MEM_SIZE);
+}
+
+static unsigned long ar71xx_pci_swizzle_b(unsigned long port)
+{
+	return ar71xx_is_pci_addr(port) ? port ^ 3 : port;
+}
+
+static unsigned long ar71xx_pci_swizzle_w(unsigned long port)
+{
+	return ar71xx_is_pci_addr(port) ? port ^ 2 : port;
+}
+
+unsigned long ath79_pci_swizzle_b(unsigned long port)
+{
+	if (__ath79_pci_swizzle_b)
+		return __ath79_pci_swizzle_b(port);
+
+	return port;
+}
+EXPORT_SYMBOL(ath79_pci_swizzle_b);
+
+unsigned long ath79_pci_swizzle_w(unsigned long port)
+{
+	if (__ath79_pci_swizzle_w)
+		return __ath79_pci_swizzle_w(port);
+
+	return port;
+}
+EXPORT_SYMBOL(ath79_pci_swizzle_w);
+
 int __init ath79_register_pci(void)
 {
 	struct platform_device *pdev = NULL;
 
 	if (soc_is_ar71xx()) {
 		pdev = ath79_register_pci_ar71xx();
+		__ath79_pci_swizzle_b = ar71xx_pci_swizzle_b;
+		__ath79_pci_swizzle_w = ar71xx_pci_swizzle_w;
 	} else if (soc_is_ar724x()) {
 		pdev = ath79_register_pci_ar724x(-1,
 						 AR724X_PCI_CFG_BASE,
@@ -259,6 +319,15 @@ int __init ath79_register_pci(void)
 						 QCA955X_PCI_CRP_BASE1,
 						 QCA955X_PCI_MEM_BASE1,
 						 QCA955X_PCI_MEM_SIZE,
+						 1,
+						 ATH79_IP3_IRQ(2));
+	} else if (soc_is_qca9561()) {
+		pdev = ath79_register_pci_ar724x(0,
+						 QCA956X_PCI_CFG_BASE1,
+						 QCA956X_PCI_CTRL_BASE1,
+						 QCA956X_PCI_CRP_BASE1,
+						 QCA956X_PCI_MEM_BASE1,
+						 QCA956X_PCI_MEM_SIZE,
 						 1,
 						 ATH79_IP3_IRQ(2));
 	} else {

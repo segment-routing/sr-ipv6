@@ -12,6 +12,13 @@
 #ifndef _ATH79_DEV_WMAC_H
 #define _ATH79_DEV_WMAC_H
 
-void ath79_register_wmac(u8 *cal_data);
+void ath79_register_wmac(u8 *cal_data, u8 *mac_addr);
+void ath79_register_wmac_simple(void);
+void ath79_wmac_disable_2ghz(void);
+void ath79_wmac_disable_5ghz(void);
+void ath79_wmac_set_tx_gain_buffalo(void);
+void ath79_wmac_set_ext_lna_gpio(unsigned chain, int gpio);
+
+bool ar93xx_wmac_read_mac_address(u8 *dest);
 
 #endif /* _ATH79_DEV_WMAC_H */

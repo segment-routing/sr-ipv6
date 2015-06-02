@@ -982,6 +982,9 @@ config MIPS_MSC
 config MIPS_NILE4
 	bool
 
+config MYLOADER
+	bool
+
 config SYNC_R4K
 	bool
 

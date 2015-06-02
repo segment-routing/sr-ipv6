@@ -233,13 +233,14 @@ void spi_bitbang_cleanup(struct spi_device *spi)
 }
 EXPORT_SYMBOL_GPL(spi_bitbang_cleanup);
 
-static int spi_bitbang_bufs(struct spi_device *spi, struct spi_transfer *t)
+int spi_bitbang_bufs(struct spi_device *spi, struct spi_transfer *t)
 {
 	struct spi_bitbang_cs	*cs = spi->controller_state;
 	unsigned		nsecs = cs->nsecs;
 
 	return cs->txrx_bufs(spi, cs->txrx_word, nsecs, t);
 }
+EXPORT_SYMBOL_GPL(spi_bitbang_bufs);
 
 /*----------------------------------------------------------------------*/
 

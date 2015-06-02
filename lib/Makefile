@@ -97,6 +97,7 @@ obj-$(CONFIG_XZ_DEC) += xz/
 obj-$(CONFIG_RAID6_PQ) += raid6/
 obj-$(CONFIG_LZMA_COMPRESS) += lzma/
 obj-$(CONFIG_LZMA_DECOMPRESS) += lzma/
+obj-$(CONFIG_RLE_DECOMPRESS) += rle.o
 
 lib-$(CONFIG_DECOMPRESS_GZIP) += decompress_inflate.o
 lib-$(CONFIG_DECOMPRESS_BZIP2) += decompress_bunzip2.o
