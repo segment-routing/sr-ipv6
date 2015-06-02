@@ -1257,6 +1257,13 @@ config RALINK_WDT
 	help
 	  Hardware driver for the Ralink SoC Watchdog Timer.
 
+config AR2315_WDT
+	tristate "Atheros AR2315+ WiSoCs Watchdog Timer"
+	depends on ATH25
+	help
+	  Hardware driver for the built-in watchdog timer on the Atheros
+	  AR2315/AR2316 WiSoCs.
+
 # PARISC Architecture
 
 # POWERPC Architecture

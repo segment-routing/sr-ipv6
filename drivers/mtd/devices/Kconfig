@@ -120,6 +120,10 @@ config MTD_BCM47XXSFLASH
 	  registered by bcma as platform devices. This enables driver for
 	  serial flash memories (only read-only mode is implemented).
 
+config MTD_AR2315
+	tristate "Atheros AR2315+ SPI Flash support"
+	depends on SOC_AR2315
+
 config MTD_SLRAM
 	tristate "Uncached system RAM"
 	help

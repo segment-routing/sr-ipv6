@@ -112,6 +112,20 @@ config GPIO_MAX730X
 
 comment "Memory mapped GPIO drivers:"
 
+config GPIO_AR2315
+	bool "AR2315 SoC GPIO support"
+	default y if SOC_AR2315
+	depends on SOC_AR2315
+	help
+	  Say yes here to enable GPIO support for Atheros AR2315+ SoCs.
+
+config GPIO_AR5312
+	bool "AR5312 SoC GPIO support"
+	default y if SOC_AR5312
+	depends on SOC_AR5312
+	help
+	  Say yes here to enable GPIO support for Atheros AR5312/AR2312+ SoCs.
+
 config GPIO_CLPS711X
 	tristate "CLPS711X GPIO support"
 	depends on ARCH_CLPS711X || COMPILE_TEST

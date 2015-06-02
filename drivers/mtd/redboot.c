@@ -30,6 +30,8 @@
 #include <linux/mtd/partitions.h>
 #include <linux/module.h>
 
+#define BOARD_CONFIG_PART		"boardconfig"
+
 struct fis_image_desc {
     unsigned char name[16];      // Null terminated name
     uint32_t	  flash_base;    // Address within FLASH of image
@@ -56,10 +58,27 @@ static inline int redboot_checksum(struct fis_image_desc *img)
 	return 1;
 }
 
+static uint32_t mtd_get_offset_erasesize(struct mtd_info *mtd, uint64_t offset)
+{
+	struct mtd_erase_region_info *regions = mtd->eraseregions;
+	int i;
+
+	for (i = 0; i < mtd->numeraseregions; i++) {
+		if (regions[i].offset +
+		    regions[i].numblocks * regions[i].erasesize <= offset)
+			continue;
+
+		return regions[i].erasesize;
+	}
+
+	return mtd->erasesize;
+}
+
 static int parse_redboot_partitions(struct mtd_info *master,
 				    struct mtd_partition **pparts,
 				    struct mtd_part_parser_data *data)
 {
+	unsigned long max_offset = 0;
 	int nrparts = 0;
 	struct fis_image_desc *buf;
 	struct mtd_partition *parts;
@@ -71,17 +90,24 @@ static int parse_redboot_partitions(struct mtd_info *master,
 	int namelen = 0;
 	int nulllen = 0;
 	int numslots;
+	int first_slot;
 	unsigned long offset;
 #ifdef CONFIG_MTD_REDBOOT_PARTS_UNALLOCATED
 	static char nullstring[] = "unallocated";
 #endif
 
+	buf = vmalloc(master->erasesize);
+	if (!buf)
+		return -ENOMEM;
+
+ restart:
 	if ( directory < 0 ) {
 		offset = master->size + directory * master->erasesize;
 		while (mtd_block_isbad(master, offset)) {
 			if (!offset) {
 			nogood:
 				printk(KERN_NOTICE "Failed to find a non-bad block to check for RedBoot partition table\n");
+				vfree(buf);
 				return -EIO;
 			}
 			offset -= master->erasesize;
@@ -94,10 +120,6 @@ static int parse_redboot_partitions(struct mtd_info *master,
 				goto nogood;
 		}
 	}
-	buf = vmalloc(master->erasesize);
-
-	if (!buf)
-		return -ENOMEM;
 
 	printk(KERN_NOTICE "Searching for RedBoot partition table in %s at offset 0x%lx\n",
 	       master->name, offset);
@@ -170,13 +192,21 @@ static int parse_redboot_partitions(struct mtd_info *master,
 	}
 	if (i == numslots) {
 		/* Didn't find it */
+		if (offset + master->erasesize < master->size) {
+			/* not at the end of the flash yet, maybe next block */
+			directory++;
+			goto restart;
+		}
 		printk(KERN_NOTICE "No RedBoot partition table detected in %s\n",
 		       master->name);
 		ret = 0;
 		goto out;
 	}
 
-	for (i = 0; i < numslots; i++) {
+	first_slot = (buf[i].flash_base & (master->erasesize - 1)) /
+		     sizeof(struct fis_image_desc);
+
+	for (i = first_slot; i < first_slot + numslots; i++) {
 		struct fis_list *new_fl, **prev;
 
 		if (buf[i].name[0] == 0xff) {
@@ -225,14 +255,15 @@ static int parse_redboot_partitions(struct mtd_info *master,
 		}
 	}
 #endif
-	parts = kzalloc(sizeof(*parts)*nrparts + nulllen + namelen, GFP_KERNEL);
+	parts = kzalloc(sizeof(*parts) * (nrparts + 1) + nulllen + namelen +
+			sizeof(BOARD_CONFIG_PART), GFP_KERNEL);
 
 	if (!parts) {
 		ret = -ENOMEM;
 		goto out;
 	}
 
-	nullname = (char *)&parts[nrparts];
+	nullname = (char *)&parts[nrparts + 1];
 #ifdef CONFIG_MTD_REDBOOT_PARTS_UNALLOCATED
 	if (nulllen > 0) {
 		strcpy(nullname, nullstring);
@@ -254,6 +285,9 @@ static int parse_redboot_partitions(struct mtd_info *master,
 		parts[i].size = fl->img->size;
 		parts[i].offset = fl->img->flash_base;
 		parts[i].name = names;
+
+		if (max_offset < parts[i].offset + parts[i].size)
+			max_offset = parts[i].offset + parts[i].size;
 
 		strcpy(names, fl->img->name);
 #ifdef CONFIG_MTD_REDBOOT_PARTS_READONLY
@@ -283,6 +317,15 @@ static int parse_redboot_partitions(struct mtd_info *master,
 		tmp_fl = fl;
 		fl = fl->next;
 		kfree(tmp_fl);
+	}
+
+	if (master->size - max_offset >=
+	    mtd_get_offset_erasesize(master, max_offset)) {
+		parts[nrparts].size = master->size - max_offset;
+		parts[nrparts].offset = max_offset;
+		parts[nrparts].name = names;
+		strcpy(names, BOARD_CONFIG_PART);
+		nrparts++;
 	}
 	ret = nrparts;
 	*pparts = parts;
