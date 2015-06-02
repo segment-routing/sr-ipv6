@@ -112,6 +112,9 @@ struct net_bridge_port_group {
 	struct timer_list		timer;
 	struct br_ip			addr;
 	unsigned char			state;
+
+	unsigned char			eth_addr[ETH_ALEN];
+	bool				unicast;
 };
 
 struct net_bridge_mdb_entry
@@ -172,6 +175,8 @@ struct net_bridge_port
 #define BR_FLOOD		0x00000040
 #define BR_AUTO_MASK (BR_FLOOD | BR_LEARNING)
 #define BR_PROMISC		0x00000080
+#define BR_ISOLATE_MODE		0x00000100
+#define BR_MULTICAST_TO_UCAST	0x00000200
 
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
 	struct bridge_mcast_own_query	ip4_own_query;
@@ -484,7 +489,8 @@ void br_multicast_free_pg(struct rcu_head *head);
 struct net_bridge_port_group *
 br_multicast_new_port_group(struct net_bridge_port *port, struct br_ip *group,
 			    struct net_bridge_port_group __rcu *next,
-			    unsigned char state);
+			    unsigned char state,
+		       const unsigned char *src);
 void br_mdb_init(void);
 void br_mdb_uninit(void);
 void br_mdb_notify(struct net_device *dev, struct net_bridge_port *port,
@@ -776,6 +782,24 @@ static inline int br_nf_core_init(void) { return 0; }
 static inline void br_nf_core_fini(void) {}
 #define br_netfilter_rtable_init(x)
 #endif
+
+#if IS_BUILTIN(CONFIG_BRIDGE_NETFILTER)
+extern int brnf_call_ebtables;
+bool br_netfilter_run_hooks(void);
+#else
+#define br_netfilter_run_hooks()	false
+#endif
+
+static inline int
+BR_HOOK(uint8_t pf, unsigned int hook, struct sk_buff *skb,
+	struct net_device *in, struct net_device *out,
+	int (*okfn)(struct sk_buff *))
+{
+	if (!br_netfilter_run_hooks())
+		return okfn(skb);
+
+	return NF_HOOK(pf, hook, skb, in, out, okfn);
+}
 
 /* br_stp.c */
 void br_log_state(const struct net_bridge_port *p);

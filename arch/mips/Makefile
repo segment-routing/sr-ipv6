@@ -87,11 +87,20 @@ all-$(CONFIG_SYS_SUPPORTS_ZBOOT)+= vmlinuz
 # machines may also.  Since BFD is incredibly buggy with respect to
 # crossformat linking we rely on the elf2ecoff tool for format conversion.
 #
-cflags-y			+= -G 0 -mno-abicalls -fno-pic -pipe
+cflags-y			+= -G 0 -mno-abicalls -fno-pic -pipe -mno-branch-likely
 cflags-y			+= -msoft-float
-LDFLAGS_vmlinux			+= -G 0 -static -n -nostdlib
+LDFLAGS_vmlinux			+= -G 0 -static -n -nostdlib --gc-sections
+ifdef CONFIG_64BIT
 KBUILD_AFLAGS_MODULE		+= -mlong-calls
 KBUILD_CFLAGS_MODULE		+= -mlong-calls
+else
+KBUILD_AFLAGS_MODULE		+= -mno-long-calls
+KBUILD_CFLAGS_MODULE		+= -mno-long-calls
+endif
+
+ifndef CONFIG_FUNCTION_TRACER
+KBUILD_CFLAGS_KERNEL		+= -ffunction-sections -fdata-sections
+endif
 
 #
 # pass -msoft-float to GAS if it supports it.  However on newer binutils
@@ -271,7 +280,7 @@ OBJCOPYFLAGS		+= --remove-section=.reginfo
 head-y := arch/mips/kernel/head.o
 
 libs-y			+= arch/mips/lib/
-libs-y			+= arch/mips/math-emu/
+libs-$(CONFIG_MIPS_FPU_EMULATOR)	+= arch/mips/math-emu/
 
 # See arch/mips/Kbuild for content of core part of the kernel
 core-y += arch/mips/

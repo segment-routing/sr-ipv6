@@ -171,6 +171,22 @@ BRPORT_ATTR_FLAG(root_block, BR_ROOT_BLOCK);
 BRPORT_ATTR_FLAG(learning, BR_LEARNING);
 BRPORT_ATTR_FLAG(unicast_flood, BR_FLOOD);
 
+static ssize_t show_isolate_mode(struct net_bridge_port *p, char *buf)
+{
+	int isolate_mode = (p->flags & BR_ISOLATE_MODE) ? 1 : 0;
+	return sprintf(buf, "%d\n", isolate_mode);
+}
+static ssize_t store_isolate_mode(struct net_bridge_port *p, unsigned long v)
+{
+	if (v)
+		p->flags |= BR_ISOLATE_MODE;
+	else
+		p->flags &= ~BR_ISOLATE_MODE;
+	return 0;
+}
+static BRPORT_ATTR(isolate_mode, S_IRUGO | S_IWUSR,
+		   show_isolate_mode, store_isolate_mode);
+
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
 static ssize_t show_multicast_router(struct net_bridge_port *p, char *buf)
 {
@@ -186,6 +202,7 @@ static BRPORT_ATTR(multicast_router, S_IRUGO | S_IWUSR, show_multicast_router,
 		   store_multicast_router);
 
 BRPORT_ATTR_FLAG(multicast_fast_leave, BR_MULTICAST_FAST_LEAVE);
+BRPORT_ATTR_FLAG(multicast_to_unicast, BR_MULTICAST_TO_UCAST);
 #endif
 
 static const struct brport_attribute *brport_attrs[] = {
@@ -212,7 +229,9 @@ static const struct brport_attribute *brport_attrs[] = {
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
 	&brport_attr_multicast_router,
 	&brport_attr_multicast_fast_leave,
+	&brport_attr_multicast_to_unicast,
 #endif
+	&brport_attr_isolate_mode,
 	NULL
 };
 

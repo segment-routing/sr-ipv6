@@ -433,7 +433,27 @@ retry:
 out:
 	put_page(page);
 }
- 
+
+static int __init mount_ubi_rootfs(void)
+{
+	int flags = MS_SILENT;
+	int err, tried = 0;
+
+	while (tried < 2) {
+		err = do_mount_root("ubi0:rootfs", "ubifs", flags, \
+					root_mount_data);
+		switch (err) {
+			case -EACCES:
+				flags |= MS_RDONLY;
+				tried++;
+			default:
+				return err;
+		}
+	}
+
+	return -EINVAL;
+}
+
 #ifdef CONFIG_ROOT_NFS
 
 #define NFSROOT_TIMEOUT_MIN	5
@@ -526,6 +546,10 @@ void __init mount_root(void)
 		} else
 			change_floppy("root floppy");
 	}
+#endif
+#ifdef CONFIG_MTD_ROOTFS_ROOT_DEV
+	if (!mount_ubi_rootfs())
+		return;
 #endif
 #ifdef CONFIG_BLOCK
 	create_dev("/dev/root", ROOT_DEV);
@@ -623,6 +647,7 @@ int __init init_rootfs(void)
 	if (err)
 		return err;
 
+#if 0
 	if (IS_ENABLED(CONFIG_TMPFS) && !saved_root_name[0] &&
 		(!root_fs_names || strstr(root_fs_names, "tmpfs"))) {
 		err = shmem_init();
@@ -630,6 +655,9 @@ int __init init_rootfs(void)
 	} else {
 		err = init_ramfs_fs();
 	}
+#else
+	err = init_ramfs_fs();
+#endif
 
 	if (err)
 		unregister_filesystem(&rootfs_fs_type);

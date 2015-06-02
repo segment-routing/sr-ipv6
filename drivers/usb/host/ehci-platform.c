@@ -226,6 +226,8 @@ static int ehci_platform_probe(struct platform_device *dev)
 		ehci->big_endian_desc = 1;
 	if (pdata->big_endian_mmio)
 		ehci->big_endian_mmio = 1;
+	if (pdata->ignore_oc)
+		ehci->ignore_oc = 1;
 
 #ifndef CONFIG_USB_EHCI_BIG_ENDIAN_MMIO
 	if (ehci->big_endian_mmio) {

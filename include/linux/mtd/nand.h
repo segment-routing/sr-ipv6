@@ -851,6 +851,7 @@ struct platform_nand_chip {
 	unsigned int options;
 	unsigned int bbt_options;
 	const char **part_probe_types;
+	int (*chip_fixup)(struct mtd_info *mtd);
 };
 
 /* Keep gcc happy */

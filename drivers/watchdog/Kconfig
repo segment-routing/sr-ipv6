@@ -1139,6 +1139,15 @@ config WDT_MTX1
 	  Hardware driver for the MTX-1 boards. This is a watchdog timer that
 	  will reboot the machine after a 100 seconds timer expired.
 
+config GPIO_WDT
+	tristate "GPIO Hardware Watchdog"
+ 	help
+	  Hardware driver for GPIO-controlled watchdogs. GPIO pin and
+	  toggle interval settings are platform-specific. The driver
+	  will stop toggling the GPIO (i.e. machine reboots) after a
+	  100 second timer expired and no process has written to
+	  /dev/watchdog during that time.
+
 config PNX833X_WDT
 	tristate "PNX833x Hardware Watchdog"
 	depends on SOC_PNX8335

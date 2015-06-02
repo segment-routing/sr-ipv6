@@ -169,8 +169,10 @@ static inline int init_fpu(void)
 		ret = __own_fpu();
 		if (!ret)
 			_init_fpu();
-	} else
+	} else if (IS_ENABLED(CONFIG_MIPS_FPU_EMULATOR))
 		fpu_emulator_init_fpu();
+	else
+		ret = SIGILL;
 
 	return ret;
 }

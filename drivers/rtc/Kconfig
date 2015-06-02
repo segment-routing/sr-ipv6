@@ -567,6 +567,15 @@ config RTC_DRV_S5M
 	  This driver can also be built as a module. If so, the module
 	  will be called rtc-s5m.
 
+config RTC_DRV_PT7C4338
+	tristate "Pericom Technology Inc. PT7C4338 RTC"
+	help
+	  If you say yes here you get support for the Pericom Technology
+	  Inc. PT7C4338 RTC chip.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called rtc-pt7c4338.
+
 endif # I2C
 
 comment "SPI RTC drivers"
@@ -978,6 +987,15 @@ config RTC_DRV_NUC900
 	help
 	  If you say yes here you get support for the RTC subsystem of the
 	  NUC910/NUC920 used in embedded systems.
+
+config RTC_DRV_RTC7301
+	tristate "Epson RTC-7301 SF/DG"
+	help
+	  If you say Y here you will get support for the
+	  Epson RTC-7301 SF/DG RTC chips.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called rtc-7301.
 
 comment "on-CPU RTC drivers"
 

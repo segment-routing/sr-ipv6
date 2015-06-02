@@ -2414,11 +2414,19 @@ static int __init ebtables_init(void)
 	}
 
 	printk(KERN_INFO "Ebtables v2.0 registered\n");
+
+#if IS_BUILTIN(CONFIG_BRIDGE_NETFILTER)
+	brnf_call_ebtables = 1;
+#endif
+
 	return 0;
 }
 
 static void __exit ebtables_fini(void)
 {
+#if IS_BUILTIN(CONFIG_BRIDGE_NETFILTER)
+	brnf_call_ebtables = 0;
+#endif
 	nf_unregister_sockopt(&ebt_sockopts);
 	xt_unregister_target(&ebt_standard_target);
 	printk(KERN_INFO "Ebtables v2.0 unregistered\n");

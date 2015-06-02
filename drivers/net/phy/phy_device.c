@@ -674,6 +674,9 @@ void phy_detach(struct phy_device *phydev)
 {
 	int i;
 
+	if (phydev->drv && phydev->drv->detach)
+		phydev->drv->detach(phydev);
+
 	if (phydev->bus->dev.driver)
 		module_put(phydev->bus->dev.driver->owner);
 
@@ -914,6 +917,9 @@ int genphy_update_link(struct phy_device *phydev)
 {
 	int status;
 
+	if (phydev->drv->update_link)
+		return phydev->drv->update_link(phydev);
+
 	/* Do a fake read */
 	status = phy_read(phydev, MII_BMSR);
 	if (status < 0)
@@ -1126,7 +1132,7 @@ int genphy_config_init(struct phy_device *phydev)
 	return 0;
 }
 
-static int gen10g_soft_reset(struct phy_device *phydev)
+static int no_soft_reset(struct phy_device *phydev)
 {
 	/* Do nothing for now */
 	return 0;
@@ -1340,7 +1346,7 @@ static struct phy_driver genphy_driver[] = {
 	.phy_id		= 0xffffffff,
 	.phy_id_mask	= 0xffffffff,
 	.name		= "Generic PHY",
-	.soft_reset	= genphy_soft_reset,
+	.soft_reset	= no_soft_reset,
 	.config_init	= genphy_config_init,
 	.features	= PHY_GBIT_FEATURES | SUPPORTED_MII |
 			  SUPPORTED_AUI | SUPPORTED_FIBRE |
@@ -1355,7 +1361,7 @@ static struct phy_driver genphy_driver[] = {
 	.phy_id         = 0xffffffff,
 	.phy_id_mask    = 0xffffffff,
 	.name           = "Generic 10G PHY",
-	.soft_reset	= gen10g_soft_reset,
+	.soft_reset	= no_soft_reset,
 	.config_init    = gen10g_config_init,
 	.features       = 0,
 	.config_aneg    = gen10g_config_aneg,

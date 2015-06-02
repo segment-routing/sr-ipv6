@@ -49,7 +49,7 @@ struct reg_default {
 	unsigned int def;
 };
 
-#ifdef CONFIG_REGMAP
+#if IS_ENABLED(CONFIG_REGMAP)
 
 enum regmap_endian {
 	/* Unspecified -> 0 -> Backwards compatible default */

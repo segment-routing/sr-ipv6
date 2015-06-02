@@ -19,6 +19,7 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/memblock.h>
+#include <linux/crashlog.h>
 
 #include <asm-generic/sections.h>
 #include <linux/io.h>
@@ -477,6 +478,8 @@ static void __init_memblock memblock_insert_region(struct memblock_type *type,
 	memblock_set_region_node(rgn, nid);
 	type->cnt++;
 	type->total_size += size;
+	if (type == &memblock.memory && idx == 0)
+		crashlog_init_memblock(base, size);
 }
 
 /**

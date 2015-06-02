@@ -721,6 +721,7 @@ static inline bool usb_device_no_sg_constraint(struct usb_device *udev)
 	return udev && udev->bus && udev->bus->no_sg_constraint;
 }
 
+extern struct usb_device *usb_find_device_by_name(const char *name);
 
 /*-------------------------------------------------------------------------*/
 

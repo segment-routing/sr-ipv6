@@ -49,6 +49,9 @@ void * __init early_init_dt_alloc_memory_arch(u64 size, u64 align)
 
 void __init __dt_setup_arch(void *bph)
 {
+	if (boot_command_line[0] == '\0')
+		strcpy(boot_command_line, arcs_cmdline);
+
 	if (!early_init_dt_scan(bph))
 		return;
 

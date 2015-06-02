@@ -63,8 +63,8 @@
 
 #include <tools/le_byteshift.h>
 
-#include <linux/elf.h>
-#include <linux/types.h>
+#include <elf.h>
+#include <stdbool.h>
 
 const char *outfilename;
 

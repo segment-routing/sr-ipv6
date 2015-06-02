@@ -31,6 +31,8 @@ struct sockaddr_ll {
 #define PACKET_KERNEL		7		/* To kernel space	*/
 /* Unused, PACKET_FASTROUTE and PACKET_LOOPBACK are invisible to user space */
 #define PACKET_FASTROUTE	6		/* Fastrouted frame	*/
+#define PACKET_MASK_ANY		0xffffffff	/* mask for packet type bits */
+
 
 /* Packet socket options */
 
@@ -54,6 +56,7 @@ struct sockaddr_ll {
 #define PACKET_FANOUT			18
 #define PACKET_TX_HAS_OFF		19
 #define PACKET_QDISC_BYPASS		20
+#define PACKET_RECV_TYPE		21
 
 #define PACKET_FANOUT_HASH		0
 #define PACKET_FANOUT_LB		1

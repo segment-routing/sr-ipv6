@@ -1034,6 +1034,12 @@ static void igb_reset_q_vector(struct igb_adapter *adapter, int v_idx)
 	if (!q_vector)
 		return;
 
+	/* Coming from igb_set_interrupt_capability, the vectors are not yet
+	 * allocated. So, q_vector is NULL so we should stop here.
+	 */
+	if (!q_vector)
+		return;
+
 	if (q_vector->tx.ring)
 		adapter->tx_ring[q_vector->tx.ring->queue_index] = NULL;
 

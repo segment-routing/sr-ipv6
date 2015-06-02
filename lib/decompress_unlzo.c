@@ -38,6 +38,7 @@
 
 #include <linux/types.h>
 #include <linux/lzo.h>
+#include <linux/decompress/unlzo_mm.h>
 #include <linux/decompress/mm.h>
 
 #include <linux/compiler.h>

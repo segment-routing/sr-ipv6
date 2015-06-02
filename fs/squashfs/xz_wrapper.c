@@ -40,8 +40,10 @@ struct squashfs_xz {
 };
 
 struct disk_comp_opts {
-	__le32 dictionary_size;
 	__le32 flags;
+	__le16 bit_opts;
+	__le16 fb;
+	__le32 dictionary_size;
 };
 
 struct comp_opts {

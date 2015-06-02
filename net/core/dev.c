@@ -2623,10 +2623,20 @@ static int xmit_one(struct sk_buff *skb, struct net_device *dev,
 	if (!list_empty(&ptype_all))
 		dev_queue_xmit_nit(skb, dev);
 
-	len = skb->len;
-	trace_net_dev_start_xmit(skb, dev);
-	rc = netdev_start_xmit(skb, dev, txq, more);
-	trace_net_dev_xmit(skb, rc, dev, len);
+#ifdef CONFIG_ETHERNET_PACKET_MANGLE
+	if (!dev->eth_mangle_tx ||
+	    (skb = dev->eth_mangle_tx(dev, skb)) != NULL)
+#else
+	if (1)
+#endif
+	{
+		len = skb->len;
+		trace_net_dev_start_xmit(skb, dev);
+		rc = netdev_start_xmit(skb, dev, txq, more);
+		trace_net_dev_xmit(skb, rc, dev, len);
+	} else {
+		rc = NETDEV_TX_OK;
+	}
 
 	return rc;
 }
@@ -4001,6 +4011,9 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 	enum gro_result ret;
 	int grow;
 
+	if (skb->gro_skip)
+		goto normal;
+
 	if (!(skb->dev->features & NETIF_F_GRO))
 		goto normal;
 
@@ -5064,6 +5077,48 @@ static void __netdev_adjacent_dev_unlink_neighbour(struct net_device *dev,
 					   &upper_dev->adj_list.lower);
 }
 
+static void __netdev_addr_mask(unsigned char *mask, const unsigned char *addr,
+			       struct net_device *dev)
+{
+	int i;
+
+	for (i = 0; i < dev->addr_len; i++)
+		mask[i] |= addr[i] ^ dev->dev_addr[i];
+}
+
+static void __netdev_upper_mask(unsigned char *mask, struct net_device *dev,
+				struct net_device *lower)
+{
+	struct net_device *cur;
+	struct list_head *iter;
+
+	netdev_for_each_upper_dev_rcu(dev, cur, iter) {
+		__netdev_addr_mask(mask, cur->dev_addr, lower);
+		__netdev_upper_mask(mask, cur, lower);
+	}
+}
+
+static void __netdev_update_addr_mask(struct net_device *dev)
+{
+	unsigned char mask[MAX_ADDR_LEN];
+	struct net_device *cur;
+	struct list_head *iter;
+
+	memset(mask, 0, sizeof(mask));
+	__netdev_upper_mask(mask, dev, dev);
+	memcpy(dev->local_addr_mask, mask, dev->addr_len);
+
+	netdev_for_each_lower_dev(dev, cur, iter)
+		__netdev_update_addr_mask(cur);
+}
+
+static void netdev_update_addr_mask(struct net_device *dev)
+{
+	rcu_read_lock();
+	__netdev_update_addr_mask(dev);
+	rcu_read_unlock();
+}
+
 static int __netdev_upper_dev_link(struct net_device *dev,
 				   struct net_device *upper_dev, bool master,
 				   void *private)
@@ -5124,6 +5179,7 @@ static int __netdev_upper_dev_link(struct net_device *dev,
 			goto rollback_lower_mesh;
 	}
 
+	netdev_update_addr_mask(dev);
 	call_netdevice_notifiers(NETDEV_CHANGEUPPER, dev);
 	return 0;
 
@@ -5241,6 +5297,7 @@ void netdev_upper_dev_unlink(struct net_device *dev,
 	list_for_each_entry(i, &upper_dev->all_adj_list.upper, list)
 		__netdev_adjacent_dev_unlink(dev, i->dev);
 
+	netdev_update_addr_mask(dev);
 	call_netdevice_notifiers(NETDEV_CHANGEUPPER, dev);
 }
 EXPORT_SYMBOL(netdev_upper_dev_unlink);
@@ -5760,6 +5817,7 @@ int dev_set_mac_address(struct net_device *dev, struct sockaddr *sa)
 	if (err)
 		return err;
 	dev->addr_assign_type = NET_ADDR_SET;
+	netdev_update_addr_mask(dev);
 	call_netdevice_notifiers(NETDEV_CHANGEADDR, dev);
 	add_device_randomness(dev->dev_addr, dev->addr_len);
 	return 0;

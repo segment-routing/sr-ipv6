@@ -225,6 +225,15 @@ config SPI_GPIO
 	  GPIO operations, you should be able to leverage that for better
 	  speed with a custom version of this driver; see the source code.
 
+config SPI_GPIO_OLD
+	tristate "Old GPIO API based bitbanging SPI controller (DEPRECATED)"
+	depends on SPI_MASTER && GPIOLIB
+	select SPI_BITBANG
+	help
+	  This code is deprecated. Please use the new mainline SPI-GPIO driver.
+
+	  If unsure, say N.
+
 config SPI_IMX
 	tristate "Freescale i.MX SPI controllers"
 	depends on ARCH_MXC || COMPILE_TEST

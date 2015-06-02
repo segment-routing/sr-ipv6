@@ -1320,7 +1320,7 @@ out:
 	return ret;
 }
 
-int ipv6_dev_get_saddr(struct net *net, const struct net_device *dst_dev,
+static int __ipv6_dev_get_saddr(struct net *net, const struct net_device *dst_dev,
 		       const struct in6_addr *daddr, unsigned int prefs,
 		       struct in6_addr *saddr)
 {
@@ -1445,7 +1445,6 @@ try_nextdev:
 	in6_ifa_put(hiscore->ifa);
 	return 0;
 }
-EXPORT_SYMBOL(ipv6_dev_get_saddr);
 
 int __ipv6_get_lladdr(struct inet6_dev *idev, struct in6_addr *addr,
 		      u32 banned_flags)
@@ -5462,6 +5461,9 @@ int __init addrconf_init(void)
 
 	ipv6_addr_label_rtnl_register();
 
+	BUG_ON(ipv6_dev_get_saddr_hook != NULL);
+	rcu_assign_pointer(ipv6_dev_get_saddr_hook, __ipv6_dev_get_saddr);
+
 	return 0;
 errout:
 	rtnl_af_unregister(&inet6_ops);
@@ -5480,6 +5482,9 @@ void addrconf_cleanup(void)
 {
 	struct net_device *dev;
 	int i;
+
+	rcu_assign_pointer(ipv6_dev_get_saddr_hook, NULL);
+	synchronize_rcu();
 
 	unregister_netdevice_notifier(&ipv6_dev_notf);
 	unregister_pernet_subsys(&addrconf_ops);

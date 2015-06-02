@@ -205,27 +205,33 @@ config RANDOM32_SELFTEST
 # compression support is select'ed if needed
 #
 config ZLIB_INFLATE
-	tristate
+	tristate "ZLIB inflate support"
 
 config ZLIB_DEFLATE
-	tristate
+	tristate "ZLIB deflate support"
 
 config LZO_COMPRESS
-	tristate
+	tristate "LZO compress support"
 
 config LZO_DECOMPRESS
-	tristate
+	tristate "LZO decompress support"
 
 config LZ4_COMPRESS
-	tristate
+	tristate "LZ4 compress support"
 
 config LZ4HC_COMPRESS
-	tristate
+	tristate "LZ4HC compress support"
 
 config LZ4_DECOMPRESS
-	tristate
+	tristate "LZ4 decompress support"
 
 source "lib/xz/Kconfig"
+
+config LZMA_COMPRESS
+    tristate
+
+config LZMA_DECOMPRESS
+    tristate
 
 #
 # These all provide a common interface (hence the apparent duplication with
@@ -320,16 +326,16 @@ config BCH_CONST_T
 # Textsearch support is select'ed if needed
 #
 config TEXTSEARCH
-	boolean
+	boolean	"Textsearch support"
 
 config TEXTSEARCH_KMP
-	tristate
+	tristate "Textsearch KMP"
 
 config TEXTSEARCH_BM
-	tristate
+	tristate "Textsearch BM"
 
 config TEXTSEARCH_FSM
-	tristate
+	tristate "Textsearch FSM"
 
 config BTREE
 	boolean

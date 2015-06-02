@@ -18,10 +18,15 @@ ifeq ($(CONFIG_CPU_ENDIAN_BE8),y)
 LDFLAGS_vmlinux	+= --be8
 LDFLAGS_MODULE	+= --be8
 endif
+LDFLAGS_vmlinux += --gc-sections
 
 OBJCOPYFLAGS	:=-O binary -R .comment -S
 GZFLAGS		:=-9
 #KBUILD_CFLAGS	+=-pipe
+
+ifndef CONFIG_FUNCTION_TRACER
+KBUILD_CFLAGS_KERNEL += -ffunction-sections -fdata-sections
+endif
 
 # Never generate .eh_frame
 KBUILD_CFLAGS	+= $(call cc-option,-fno-dwarf2-cfi-asm)

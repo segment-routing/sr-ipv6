@@ -25,6 +25,12 @@ menuconfig NET
 
 if NET
 
+config ETHERNET_PACKET_MANGLE
+	bool
+	help
+	  This option can be selected by phy drivers that need to mangle
+	  packets going in or out of an ethernet device.
+
 config WANT_COMPAT_NETLINK_MESSAGES
 	bool
 	help
@@ -83,6 +89,9 @@ source "net/netlabel/Kconfig"
 source "net/mptcp/Kconfig"
 
 endif # if INET
+
+config SOCK_DIAG
+	bool
 
 config NETWORK_SECMARK
 	bool "Security Marking"
@@ -178,11 +187,11 @@ config NETFILTER_ADVANCED
 	  If unsure, say Y.
 
 config BRIDGE_NETFILTER
-	tristate "Bridged IP/ARP packets filtering"
+	bool "Bridged IP/ARP packets filtering"
 	depends on BRIDGE
 	depends on NETFILTER && INET
 	depends on NETFILTER_ADVANCED
-	default m
+	default y
 	---help---
 	  Enabling this option will let arptables resp. iptables see bridged
 	  ARP resp. IP traffic. If you want a bridging firewall, you probably

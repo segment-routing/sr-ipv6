@@ -738,7 +738,7 @@ static int yaffs_file_flush(struct file *file)
 
 	yaffs_gross_lock(dev);
 
-	yaffs_flush_file(obj, 1, 0);
+	yaffs_flush_file(obj, 1, 0, 1);
 
 	yaffs_gross_unlock(dev);
 
@@ -768,13 +768,27 @@ static int yaffs_sync_object(struct file *file, struct dentry *dentry,
 	yaffs_trace(YAFFS_TRACE_OS | YAFFS_TRACE_SYNC,
 		"yaffs_sync_object");
 	yaffs_gross_lock(dev);
-	yaffs_flush_file(obj, 1, datasync);
+	yaffs_flush_file(obj, 1, datasync, 1);
 	yaffs_gross_unlock(dev);
 	return 0;
 }
 
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 22))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0))
+static const struct file_operations yaffs_file_operations = {
+	.read = new_sync_read,
+	.read_iter = generic_file_read_iter,
+	.write = new_sync_write,
+	.write_iter = generic_file_write_iter,
+	.mmap = generic_file_mmap,
+	.flush = yaffs_file_flush,
+	.fsync = yaffs_sync_object,
+	.splice_read = generic_file_splice_read,
+	.splice_write = iter_file_splice_write,
+	.llseek = generic_file_llseek,
+};
+
+#elif (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 22))
 static const struct file_operations yaffs_file_operations = {
 	.read = do_sync_read,
 	.write = do_sync_write,
@@ -2187,7 +2201,7 @@ static void yaffs_flush_inodes(struct super_block *sb)
 			yaffs_trace(YAFFS_TRACE_OS,
 				"flushing obj %d",
 				obj->obj_id);
-			yaffs_flush_file(obj, 1, 0);
+			yaffs_flush_file(obj, 1, 0, 1);
 		}
 	}
 }
@@ -2200,7 +2214,7 @@ static void yaffs_flush_super(struct super_block *sb, int do_checkpoint)
 
 	yaffs_flush_inodes(sb);
 	yaffs_update_dirty_dirs(dev);
-	yaffs_flush_whole_cache(dev);
+	yaffs_flush_whole_cache(dev, 1);
 	if (do_checkpoint)
 		yaffs_checkpoint_save(dev);
 }
@@ -2605,6 +2619,7 @@ static const struct super_operations yaffs_super_ops = {
 
 struct yaffs_options {
 	int inband_tags;
+	int tags_9bytes;
 	int skip_checkpoint_read;
 	int skip_checkpoint_write;
 	int no_cache;
@@ -2644,6 +2659,8 @@ static int yaffs_parse_options(struct yaffs_options *options,
 
 		if (!strcmp(cur_opt, "inband-tags")) {
 			options->inband_tags = 1;
+		} else if (!strcmp(cur_opt, "tags-9bytes")) {
+			options->tags_9bytes = 1;
 		} else if (!strcmp(cur_opt, "tags-ecc-off")) {
 			options->tags_ecc_on = 0;
 			options->tags_ecc_overridden = 1;
@@ -2717,7 +2734,6 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 	struct yaffs_param *param;
 
 	int read_only = 0;
-	int inband_tags = 0;
 
 	struct yaffs_options options;
 
@@ -2757,6 +2773,9 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 
 	memset(&options, 0, sizeof(options));
 
+	if (IS_ENABLED(CONFIG_YAFFS_9BYTE_TAGS))
+		options.tags_9bytes = 1;
+
 	if (yaffs_parse_options(&options, data_str)) {
 		/* Option parsing failed */
 		return NULL;
@@ -2790,17 +2809,22 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 	}
 
 	/* Added NCB 26/5/2006 for completeness */
-	if (yaffs_version == 2 && !options.inband_tags
-	    && WRITE_SIZE(mtd) == 512) {
+	if (yaffs_version == 2 &&
+	    (!options.inband_tags || options.tags_9bytes) &&
+	    WRITE_SIZE(mtd) == 512) {
 		yaffs_trace(YAFFS_TRACE_ALWAYS, "auto selecting yaffs1");
 		yaffs_version = 1;
 	}
 
-	if (mtd->oobavail < sizeof(struct yaffs_packed_tags2) ||
-	    options.inband_tags)
-		inband_tags = 1;
+	if (yaffs_version == 2 &&
+	    mtd->oobavail < sizeof(struct yaffs_packed_tags2)) {
+		yaffs_trace(YAFFS_TRACE_ALWAYS, "auto selecting inband tags");
+		options.inband_tags = 1;
+	}
 
-	if(yaffs_verify_mtd(mtd, yaffs_version, inband_tags) < 0)
+	err = yaffs_verify_mtd(mtd, yaffs_version, options.inband_tags,
+			       options.tags_9bytes);
+	if (err < 0)
 		return NULL;
 
 	/* OK, so if we got here, we have an MTD that's NAND and looks
@@ -2857,7 +2881,8 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 
 	param->n_reserved_blocks = 5;
 	param->n_caches = (options.no_cache) ? 0 : 10;
-	param->inband_tags = inband_tags;
+	param->inband_tags = options.inband_tags;
+	param->tags_9bytes = options.tags_9bytes;
 
 	param->enable_xattr = 1;
 	if (options.lazy_loading_overridden)

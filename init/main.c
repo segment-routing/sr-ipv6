@@ -362,6 +362,29 @@ static inline void setup_nr_cpu_ids(void) { }
 static inline void smp_prepare_cpus(unsigned int maxcpus) { }
 #endif
 
+#ifdef CONFIG_MANGLE_BOOTARGS
+static void __init mangle_bootargs(char *command_line)
+{
+	char *rootdev;
+	char *rootfs;
+
+	rootdev = strstr(command_line, "root=/dev/mtdblock");
+
+	if (rootdev)
+		strncpy(rootdev, "mangled_rootblock=", 18);
+
+	rootfs = strstr(command_line, "rootfstype");
+
+	if (rootfs)
+		strncpy(rootfs, "mangled_fs", 10);
+
+}
+#else
+static void __init mangle_bootargs(char *command_line)
+{
+}
+#endif
+
 /*
  * We need to store the untouched command line for future reference.
  * We also need to store the touched command line since the parameter
@@ -530,6 +553,7 @@ asmlinkage __visible void __init start_kernel(void)
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
 	mm_init_cpumask(&init_mm);
+	mangle_bootargs(command_line);
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
@@ -962,7 +986,8 @@ static int __ref kernel_init(void *unused)
 		pr_err("Failed to execute %s (error %d).  Attempting defaults...\n",
 			execute_command, ret);
 	}
-	if (!try_to_run_init_process("/sbin/init") ||
+	if (!try_to_run_init_process("/etc/preinit") ||
+	    !try_to_run_init_process("/sbin/init") ||
 	    !try_to_run_init_process("/etc/init") ||
 	    !try_to_run_init_process("/bin/init") ||
 	    !try_to_run_init_process("/bin/sh"))

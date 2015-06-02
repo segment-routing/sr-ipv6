@@ -20,6 +20,9 @@
 #include <linux/swap.h>
 #include <linux/splice.h>
 #include <linux/aio.h>
+#ifdef CONFIG_MIPS
+#include <asm/cacheflush.h>
+#endif
 
 MODULE_ALIAS_MISCDEV(FUSE_MINOR);
 MODULE_ALIAS("devname:fuse");
@@ -749,6 +752,9 @@ static int fuse_copy_fill(struct fuse_copy_state *cs)
 static int fuse_copy_do(struct fuse_copy_state *cs, void **val, unsigned *size)
 {
 	unsigned ncpy = min(*size, cs->len);
+#ifdef CONFIG_MIPS
+	__flush_cache_all();
+#endif
 	if (val) {
 		void *pgaddr = kmap_atomic(cs->pg);
 		void *buf = pgaddr + cs->offset;

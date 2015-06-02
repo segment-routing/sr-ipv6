@@ -740,9 +740,15 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 	ufs->workdir = ovl_workdir_create(ufs->upper_mnt, workpath.dentry);
 	err = PTR_ERR(ufs->workdir);
 	if (IS_ERR(ufs->workdir)) {
-		pr_err("overlayfs: failed to create directory %s/%s\n",
-		       ufs->config.workdir, OVL_WORKDIR_NAME);
-		goto out_put_lower_mnt;
+		if (err == -ENOSPC || err == -EROFS) {
+			pr_warning("overlayfs: failed to create work directory (%s), mounting read-only\n", err == ENOSPC ? "ENOSPC" : "EROFS");
+			sb->s_flags |= MS_RDONLY;
+			ufs->workdir = NULL;
+		} else {
+			pr_err("overlayfs: failed to create directory %s/%s\n",
+			       ufs->config.workdir, OVL_WORKDIR_NAME);
+			goto out_put_lower_mnt;
+		}
 	}
 
 	/*

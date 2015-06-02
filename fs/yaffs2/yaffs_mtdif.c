@@ -278,7 +278,8 @@ struct mtd_info * yaffs_get_mtd_device(dev_t sdev)
 	return mtd;
 }
 
-int yaffs_verify_mtd(struct mtd_info *mtd, int yaffs_version, int inband_tags)
+int yaffs_verify_mtd(struct mtd_info *mtd, int yaffs_version, int inband_tags,
+		     int tags_9bytes)
 {
 	if (yaffs_version == 2) {
 		if ((WRITE_SIZE(mtd) < YAFFS_MIN_YAFFS2_CHUNK_SIZE ||
@@ -295,6 +296,12 @@ int yaffs_verify_mtd(struct mtd_info *mtd, int yaffs_version, int inband_tags)
 			yaffs_trace(YAFFS_TRACE_ALWAYS,
 				"MTD device does not support have the right page sizes"
 			);
+			return -1;
+		}
+
+		if (tags_9bytes && mtd->oobavail < 9) {
+			yaffs_trace(YAFFS_TRACE_ALWAYS,
+				    "MTD device does not support 9-byte tags");
 			return -1;
 		}
 	}

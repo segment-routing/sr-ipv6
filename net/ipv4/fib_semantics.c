@@ -138,6 +138,10 @@ const struct fib_prop fib_props[RTN_MAX + 1] = {
 		.error	= -EINVAL,
 		.scope	= RT_SCOPE_NOWHERE,
 	},
+	[RTN_POLICY_FAILED] = {
+		.error	= -EACCES,
+		.scope	= RT_SCOPE_UNIVERSE,
+	},
 };
 
 static void rt_fibinfo_free(struct rtable __rcu **rtp)
@@ -408,24 +412,6 @@ void rtmsg_fib(int event, __be32 key, struct fib_alias *fa,
 errout:
 	if (err < 0)
 		rtnl_set_sk_err(info->nl_net, RTNLGRP_IPV4_ROUTE, err);
-}
-
-/* Return the first fib alias matching TOS with
- * priority less than or equal to PRIO.
- */
-struct fib_alias *fib_find_alias(struct list_head *fah, u8 tos, u32 prio)
-{
-	if (fah) {
-		struct fib_alias *fa;
-		list_for_each_entry(fa, fah, fa_list) {
-			if (fa->fa_tos > tos)
-				continue;
-			if (fa->fa_info->fib_priority >= prio ||
-			    fa->fa_tos < tos)
-				return fa;
-		}
-	}
-	return NULL;
 }
 
 static int fib_detect_death(struct fib_info *fi, int order,

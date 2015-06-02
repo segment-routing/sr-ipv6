@@ -22,6 +22,35 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#ifdef __APPLE__
+/* Darwin has no memmem implementation, this one is ripped of the uClibc-0.9.28 source */
+void *memmem (const void *haystack, size_t haystack_len,
+                          const void *needle,  size_t needle_len)
+{
+  const char *begin;
+  const char *const last_possible
+    = (const char *) haystack + haystack_len - needle_len;
+
+  if (needle_len == 0)
+    /* The first occurrence of the empty string is deemed to occur at
+       the beginning of the string.  */
+    return (void *) haystack;
+
+  /* Sanity check, otherwise the loop might search through the whole
+     memory.  */
+  if (__builtin_expect (haystack_len < needle_len, 0))
+    return NULL;
+
+  for (begin = (const char *) haystack; begin <= last_possible; ++begin)
+    if (begin[0] == ((const char *) needle)[0] &&
+        !memcmp ((const void *) &begin[1],
+                 (const void *) ((const char *) needle + 1),
+                 needle_len - 1))
+      return (void *) begin;
+
+  return NULL;
+}
+#endif
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
@@ -58,6 +87,7 @@ static struct addr_range percpu_range = {
 static struct sym_entry *table;
 static unsigned int table_size, table_cnt;
 static int all_symbols = 0;
+static int uncompressed = 0;
 static int absolute_percpu = 0;
 static char symbol_prefix_char = '\0';
 static unsigned long long kernel_start_addr = 0;
@@ -392,6 +422,9 @@ static void write_src(void)
 
 	free(markers);
 
+	if (uncompressed)
+		return;
+
 	output_label("kallsyms_token_table");
 	off = 0;
 	for (i = 0; i < 256; i++) {
@@ -449,6 +482,9 @@ static void build_initial_tok_table(void)
 static void *find_token(unsigned char *str, int len, unsigned char *token)
 {
 	int i;
+
+	if (uncompressed)
+		return NULL;
 
 	for (i = 0; i < len - 1; i++) {
 		if (str[i] == token[0] && str[i+1] == token[1])
@@ -521,6 +557,9 @@ static int find_best_token(void)
 static void optimize_result(void)
 {
 	int i, best;
+
+	if (uncompressed)
+		return;
 
 	/* using the '\0' symbol last allows compress_symbols to use standard
 	 * fast string functions */
@@ -692,7 +731,9 @@ int main(int argc, char **argv)
 			} else if (strncmp(argv[i], "--page-offset=", 14) == 0) {
 				const char *p = &argv[i][14];
 				kernel_start_addr = strtoull(p, NULL, 16);
-			} else
+			} else if (strcmp(argv[i], "--uncompressed") == 0)
+				uncompressed = 1;
+			else
 				usage();
 		}
 	} else if (argc != 1)
