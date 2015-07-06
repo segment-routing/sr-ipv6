@@ -431,6 +431,13 @@ int ip6_forward(struct sk_buff *skb)
 		}
 	}
 
+	/* apply srh if needed */
+	if (seg6_process_skb(net, skb)) {
+		skb_dst_drop(skb);
+		ip6_route_input(skb);
+		return dst_input(skb);
+	}
+
 	if (!xfrm6_route_forward(skb)) {
 		IP6_INC_STATS_BH(net, ip6_dst_idev(dst),
 				 IPSTATS_MIB_INDISCARDS);
