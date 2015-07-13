@@ -1201,6 +1201,8 @@ int ip6_append_data(struct sock *sk, int getfrag(void *from, char *to,
 			if (opt->srcrt && !np->cork.opt->srcrt)
 				return -ENOBUFS;
 
+			np->cork.opt->srcrt_srh = opt->srcrt_srh;
+
 			/* need source address above miyazawa*/
 		}
 		dst_hold(&rt->dst);
