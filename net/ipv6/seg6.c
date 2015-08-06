@@ -547,10 +547,11 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 	int len;
 	struct ipv6_sr_hdr *srhdr;
 	struct ipv6hdr *hdr;
+	struct in6_addr *active_addr;
+	struct dst_entry *dst;
+	struct flowi6 fl6;
 
-	return -ENOSYS;
-
-/*	if (!info->attrs[SEG6_ATTR_PACKET_DATA] || !info->attrs[SEG6_ATTR_PACKET_LEN])
+	if (!info->attrs[SEG6_ATTR_PACKET_DATA] || !info->attrs[SEG6_ATTR_PACKET_LEN])
 		return -EINVAL;
 
 	len = nla_get_s32(info->attrs[SEG6_ATTR_PACKET_LEN]);
@@ -566,8 +567,36 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 
 	memcpy(msg->data, data, len);
 
-	hdr = ipv6_hdr(msg);*/
+	hdr = ipv6_hdr(msg);
 
+	if (hdr->nexthdr != NEXTHDR_ROUTING) {
+		kfree_skb(msg);
+		return -EINVAL;
+	}
+
+	srhdr = (struct ipv6_sr_hdr *)(hdr + 1);
+
+	active_addr = srhdr->segments + srhdr->segments_left;
+	hdr->daddr = *active_addr;
+
+	memset(&fl6, 0, sizeof(fl6));
+	fl6.daddr = hdr->daddr;
+	fl6.flowlabel = ((hdr->flow_lbl[0] & 0xF) << 16) |
+						(hdr->flow_lbl[1] << 8) | hdr->flow_lbl[2];
+	dst = ip6_route_output(net, NULL, &fl6);
+	if (dst->error) {
+		dst_release(dst);
+		kfree_skb(msg);
+		return -EINVAL;
+	}
+	skb_dst_drop(msg);
+	skb_dst_set(msg, dst);
+	msg->dev = dst->dev;
+	msg->protocol = htons(ETH_P_IPV6);
+
+	ip6_route_input(msg);
+
+	return dst_input(msg);
 }
 
 static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
