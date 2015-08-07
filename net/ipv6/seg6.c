@@ -594,8 +594,6 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 	msg->dev = dst->dev;
 	msg->protocol = htons(ETH_P_IPV6);
 
-	ip6_route_input(msg);
-
 	return dst_input(msg);
 }
 
