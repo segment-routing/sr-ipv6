@@ -911,6 +911,9 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 
 	bib->op = op;
 
+	if (info->attrs[SEG6_ATTR_FLAGS])
+		bib->flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
+
 	if (op == SEG6_BIND_SERVICE) {
 		bib->data = kzalloc(sizeof(u32), GFP_KERNEL);
 		if (!bib->data) {

@@ -50,6 +50,9 @@ struct seg6_info {
 #define SEG6_BIND_INSERT	2	/* push segments in srh */
 #define SEG6_BIND_TRANSLATE	3	/* translate source/dst ? */
 #define SEG6_BIND_SERVICE	4	/* send packet to virtual service */
+
+#define SEG6_BIND_FLAG_ASYM	0x01
+
 struct seg6_bib_node {
 	struct seg6_bib_node *next;
 	struct in6_addr segment;
@@ -57,6 +60,7 @@ struct seg6_bib_node {
 	int op;
 	void *data;
 	int datalen;
+	u32 flags;
 	/*
 	 * NEXT: 		NULL
 	 * ROUTE: 		struct in6_addr *

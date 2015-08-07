@@ -412,12 +412,13 @@ looped_back:
 			neigh_rt = (struct in6_addr *)bib_node->data;
 		if (bib_node->op == SEG6_BIND_SERVICE && !(sr_get_flags(hdr) & SR6_FLAG_TUNNEL)) {
 			int rc;
-			/* TODO: support asymmetric handling */
 			rc = seg6_nl_packet_in(net, skb, *(u32 *)bib_node->data);
-			if (rc < 0)
+			if (rc < 0) {
 				seg6_bib_remove(net, active_addr);
-			kfree_skb(skb);
-			return -1;
+			} else if (!(bib_node->flags & SEG6_BIND_FLAG_ASYM)) {
+				kfree_skb(skb);
+				return -1;
+			}
 		}
 	}
 
