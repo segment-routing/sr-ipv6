@@ -493,13 +493,18 @@ enum {
  * /!\ We are in atomic context.
  *
  */
-int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, u32 portid)
+int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data)
 {
 	struct sk_buff *skb2, *msg;
 	struct ipv6_sr_hdr *srhdr;
 	struct in6_addr *orig_da;
 	void *hdr;
 	int rc;
+	u32 portid;
+	struct sock *dst_sk;
+
+	portid = *(u32 *)bib_data;
+	dst_sk = *(struct sock **)(bib_data + sizeof(u32));
 
 	skb2 = skb_copy(skb, GFP_ATOMIC); /* linearize */
 	srhdr = (struct ipv6_sr_hdr *)skb_transport_header(skb2);
@@ -509,7 +514,7 @@ int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, u32 portid)
 
 	skb_push(skb2, skb2->data - skb_network_header(skb2));
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_ATOMIC);
+	msg = netlink_alloc_skb(dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE), portid, GFP_ATOMIC);
 	if (!msg)
 		goto err;
 
@@ -786,7 +791,7 @@ static int seg6_genl_dump(struct sk_buff *skb, struct genl_info *info)
 		hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[i], seg_chain) {
 			list = s6info->list;
 			while (list != NULL) {
-				msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+				msg = netlink_alloc_skb(info->dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE), info->snd_portid, GFP_KERNEL);
 				if (!msg)
 					return -ENOMEM;
 
@@ -851,7 +856,7 @@ static int seg6_genl_dumphmac(struct sk_buff *skb, struct genl_info *info)
 		if (hinfo == NULL)
 			continue;
 
-		msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+		msg = netlink_alloc_skb(info->dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE), info->snd_portid, GFP_KERNEL);
 		if (!msg)
 			return -ENOMEM;
 
@@ -915,13 +920,14 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 		bib->flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
 
 	if (op == SEG6_BIND_SERVICE) {
-		bib->data = kzalloc(sizeof(u32), GFP_KERNEL);
+		bib->data = kzalloc(sizeof(u32)+sizeof(struct sock *), GFP_KERNEL);
 		if (!bib->data) {
 			kfree(bib);
 			return -ENOMEM;
 		}
 		*(u32 *)bib->data = info->snd_portid;
-		bib->datalen = sizeof(u32);
+		bib->datalen = sizeof(u32)+sizeof(struct sock *);
+		*(struct sock **)(bib->data + sizeof(u32)) = info->dst_sk;
 	} else {
 		datalen = nla_get_s32(info->attrs[SEG6_ATTR_BIND_DATALEN]);
 		bib->data = kzalloc(datalen, GFP_KERNEL);
@@ -983,7 +989,7 @@ static int seg6_genl_dumpbind(struct sk_buff *skb, struct genl_info *info)
 	struct seg6_bib_node *bib;
 
 	for (bib = net->ipv6.seg6_bib_head; bib; bib = bib->next) {
-		msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+		msg = netlink_alloc_skb(info->dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE), info->snd_portid, GFP_KERNEL);
 		if (!msg)
 			return -ENOMEM;
 

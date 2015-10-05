@@ -81,7 +81,7 @@ extern void seg6_nl_init(void);
 extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse);
 extern struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment);
 extern int seg6_bib_remove(struct net *net, struct in6_addr *addr);
-extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, u32 portid);
+extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data);
 
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
