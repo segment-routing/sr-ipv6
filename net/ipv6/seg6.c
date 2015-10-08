@@ -246,6 +246,8 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 	hdr = ipv6_hdr(skb);
 	srh = (void *)hdr + sizeof(struct ipv6hdr);
 
+	skb->transport_header = skb->network_header + sizeof(struct ipv6hdr);
+
 	memset(srh, 0, tot_len);
 
 	/*
