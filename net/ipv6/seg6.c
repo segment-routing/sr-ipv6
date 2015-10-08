@@ -310,6 +310,11 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 	struct seg6_list *segments;
 
 	hdr = ipv6_hdr(skb);
+
+	/* TODO add sysctl */
+	if (hdr->nexthdr == NEXTHDR_ROUTING)
+		return 0;
+
 	seg_info = seg6_segment_lookup(net, &hdr->daddr);
 
 	if (seg_info == NULL)
