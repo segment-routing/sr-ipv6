@@ -408,10 +408,15 @@ looped_back:
 
 	/* check if active segment is a Binding-SID */
 	if ((bib_node = seg6_bib_lookup(net, active_addr))) {
-		if (bib_node->op == SEG6_BIND_ROUTE)
+		switch (bib_node->op) {
+		case SEG6_BIND_ROUTE:
 			neigh_rt = (struct in6_addr *)bib_node->data;
-		if (bib_node->op == SEG6_BIND_SERVICE && !(sr_get_flags(hdr) & SR6_FLAG_TUNNEL)) {
+			break;
+		case SEG6_BIND_SERVICE:
+		{
 			int rc;
+			if (sr_get_flags(hdr) & SR6_FLAG_TUNNEL)
+				break;
 			rc = seg6_nl_packet_in(net, skb, bib_node->data);
 			if (rc < 0 && rc != -EAGAIN) {
 				seg6_bib_remove(net, active_addr);
@@ -419,6 +424,13 @@ looped_back:
 				kfree_skb(skb);
 				return -1;
 			}
+			break;
+		}
+		case SEG6_BIND_OVERRIDE_NEXT:
+			memcpy(addr, bib_node->data, sizeof(struct in6_addr));
+			break;
+		default:
+			break;
 		}
 	}
 
