@@ -177,8 +177,6 @@ void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
 
 	if (segments->cleanup)
 		flags |= SR6_FLAG_CLEANUP;
-	if (segments->tunnel)
-		flags |= SR6_FLAG_TUNNEL;
 
 	sr_set_flags(srh, flags);
 
@@ -222,12 +220,11 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, 
 int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments)
 {
 	struct ipv6hdr *hdr;
-	int srhlen, tot_len;
+	int tot_len;
 	struct ipv6_sr_hdr *srh;
 	int flags = 0;
 
-	srhlen = SEG6_HDR_BYTELEN(segments);
-	tot_len = srhlen + (segments->tunnel ? sizeof(struct ipv6hdr) : 0);
+	tot_len = SEG6_HDR_BYTELEN(segments);
 
 	if (pskb_expand_head(skb, tot_len, 0, GFP_ATOMIC)) {
 		printk(KERN_DEBUG "SR6: seg6_process_skb: cannot expand head\n");
@@ -235,8 +232,7 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 	}
 
 	/*
-	 * Move the IPv6 header up to let place for the SRH and, if in tunnel mode,
-	 * the inner IPv6 header.
+	 * Move the IPv6 header up to let place for the SRH
 	 */
 	memmove(skb_network_header(skb) - tot_len, skb_network_header(skb), sizeof(struct ipv6hdr));
 
@@ -250,14 +246,7 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 
 	memset(srh, 0, tot_len);
 
-	/*
-	 * If we are in tunnel mode, the header next to the SRH is the original
-	 * IPv6 header
-	 */
-	if (segments->tunnel)
-		srh->nexthdr = NEXTHDR_IPV6;
-	else
-		srh->nexthdr = hdr->nexthdr;
+	srh->nexthdr = hdr->nexthdr;
 
 	hdr->nexthdr = NEXTHDR_ROUTING;
 	hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
@@ -269,8 +258,6 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 
 	if (segments->cleanup)
 		flags |= SR6_FLAG_CLEANUP;
-	if (segments->tunnel)
-		flags |= SR6_FLAG_TUNNEL;
 
 	sr_set_flags(srh, flags);
 
@@ -278,9 +265,6 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 	srh->segments[0] = hdr->daddr;
 
 	hdr->daddr = segments->segments[0];
-
-	if (segments->tunnel)
-		ipv6_dev_get_saddr(net, skb->dev, &hdr->daddr, IPV6_PREFER_SRC_PUBLIC, &hdr->saddr);
 
 	if (segments->hmackeyid) {
 		char *key;
@@ -490,7 +474,6 @@ enum {
 
 /*
  * @skb's SRH has undergone segleft dec
- * Currently, tunnel mode is not supported
  *
  * We need to change DA to orig DA. When packet will be received in PACKET_OUT,
  * then we just need to overwrite DA to active seg.
@@ -667,7 +650,6 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 	tmp->id = seglist_id;
 	tmp->seg_size = seg_len;
 	tmp->cleanup = (flags & SR6_FLAG_CLEANUP) ? 1 : 0;
-	tmp->tunnel = (flags & SR6_FLAG_TUNNEL) ? 1 : 0;
 	tmp->hmackeyid = nla_get_u8(info->attrs[SEG6_ATTR_HMACKEYID]);
 	tmp->segments = kmalloc(seg_len*sizeof(struct in6_addr), GFP_KERNEL);
 	if (!tmp->segments) {
@@ -822,7 +804,7 @@ static int seg6_genl_dump(struct sk_buff *skb, struct genl_info *info)
 				if (nla_put_s32(msg, SEG6_ATTR_SEGLEN, list->seg_size))
 					goto nla_put_failure;
 
-				if (nla_put_u32(msg, SEG6_ATTR_FLAGS, ((list->cleanup & 0x1) << 3) | ((list->tunnel & 0x1) << 1)))
+				if (nla_put_u32(msg, SEG6_ATTR_FLAGS, ((list->cleanup & 0x1) << 3)))
 					goto nla_put_failure;
 
 				if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, list->hmackeyid))

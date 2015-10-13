@@ -29,7 +29,6 @@ struct seg6_list {
 	struct in6_addr *segments;
 	int seg_size;
 	int cleanup;
-	int tunnel;
 	u16 id;
 	u8 hmackeyid;
 };

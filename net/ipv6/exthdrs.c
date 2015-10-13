@@ -301,7 +301,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	u32 hmac_output[5];
 	u8 *hmac_input;
 	u8 hmac_key_id;
-	int nh, srhlen, ph = 0;
+	int nh, srhlen;
 	struct inet6_dev *idev;
 	struct seg6_hmac_info *hinfo;
 	struct seg6_bib_node *bib_node;
@@ -373,12 +373,8 @@ looped_back:
 	last_addr = hdr->segments;
 
 	if (hdr->segments_left > 0) {
-		if (hdr->segments_left == 1) {
-			ph = 1;
-			/* cleanup forced when in tunnel mode */
-			if (sr_get_flags(hdr) & (SR6_FLAG_CLEANUP | SR6_FLAG_TUNNEL))
-				cleanup = 1;
-		}
+		if (hdr->segments_left == 1 && sr_get_flags(hdr) & SR6_FLAG_CLEANUP)
+			cleanup = 1;
 	} else {
 		opt->lastopt = opt->srcrt = skb_network_header_len(skb);
 		skb->transport_header += (hdr->hdrlen + 1) << 3;
@@ -402,10 +398,6 @@ looped_back:
 	hdr->segments_left--;
 	addr = hdr->segments + hdr->segments_left;
 
-	/* replace source address by local if we are in tunnel mode */
-	if (!ph && sr_get_flags(hdr) & SR6_FLAG_TUNNEL)
-		ipv6_hdr(skb)->saddr = ipv6_hdr(skb)->daddr;
-
 	/* check if active segment is a Binding-SID */
 	if ((bib_node = seg6_bib_lookup(net, active_addr))) {
 		switch (bib_node->op) {
@@ -415,8 +407,6 @@ looped_back:
 		case SEG6_BIND_SERVICE:
 		{
 			int rc;
-			if (sr_get_flags(hdr) & SR6_FLAG_TUNNEL)
-				break;
 			rc = seg6_nl_packet_in(net, skb, bib_node->data);
 			if (rc < 0 && rc != -EAGAIN) {
 				seg6_bib_remove(net, active_addr);
@@ -434,7 +424,6 @@ looped_back:
 		}
 	}
 
-	/* useless if we are tunnel exit but we need to do this before cleanup anyway */
 	ipv6_hdr(skb)->daddr = *addr;
 
 	skb_push(skb, skb->data - skb_network_header(skb));
@@ -444,18 +433,13 @@ looped_back:
 	if (cleanup) {
 		srhlen = (hdr->hdrlen + 1) << 3;
 
-		if (sr_get_flags(hdr) & SR6_FLAG_TUNNEL) {
-			skb_pull(skb, sizeof(struct ipv6hdr) + srhlen);
-			skb->network_header += sizeof(struct ipv6hdr) + srhlen;
-		} else {
-			nh = hdr->nexthdr;
-			/* we need to move data from top to bottom to avoid nonlinear skb issues with TSO/GSO */
-			memmove(skb_network_header(skb) + srhlen, skb_network_header(skb), (unsigned char *)hdr - skb_network_header(skb));
-			skb_pull(skb, srhlen);
-			skb->network_header += srhlen;
-			ipv6_hdr(skb)->nexthdr = nh;
-			ipv6_hdr(skb)->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
-		}
+		nh = hdr->nexthdr;
+		/* we need to move data from top to bottom to avoid nonlinear skb issues with TSO/GSO */
+		memmove(skb_network_header(skb) + srhlen, skb_network_header(skb), (unsigned char *)hdr - skb_network_header(skb));
+		skb_pull(skb, srhlen);
+		skb->network_header += srhlen;
+		ipv6_hdr(skb)->nexthdr = nh;
+		ipv6_hdr(skb)->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 	}
 
 	skb_dst_drop(skb);

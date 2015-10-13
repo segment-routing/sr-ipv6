@@ -82,8 +82,7 @@ struct ipv6_sr_hdr {
 } __attribute__((packed));
 
 #define SR6_FLAG_CLEANUP	0x08
-#define	SR6_FLAG_PROTECTED	0x04
-#define SR6_FLAG_TUNNEL		0x02
+#define SR6_FLAG_PROTECTED	0x04
 
 #define sr_set_flags(hdr, val) ((hdr)->flags = val)
 #define sr_get_flags(hdr) ((hdr)->flags)
