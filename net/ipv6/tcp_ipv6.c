@@ -140,9 +140,6 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	struct dst_entry *dst;
 	int addr_type;
 	int err;
-	struct seg6_list *segments;
-	struct ipv6_txoptions *opt2;
-	int tot_len;
 
 	if (addr_len < SIN6_LEN_RFC2133)
 		return -EINVAL;
@@ -256,24 +253,6 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	fl6.flowi6_mark = sk->sk_mark;
 	fl6.fl6_dport = usin->sin6_port;
 	fl6.fl6_sport = inet->inet_sport;
-
-	/* TODO add sysctl check */
-	segments = seg6_get_segments(sock_net(sk), &sk->sk_v6_daddr);
-	if (!np->opt && segments) {
-		tot_len = CMSG_ALIGN(SEG6_HDR_BYTELEN(segments));
-		tot_len += sizeof(*opt2);
-		opt2 = sock_kmalloc(sk, tot_len, GFP_ATOMIC);
-		if (!opt2) {
-			err = -ENOBUFS;
-			goto failure;
-		}
-		memset(opt2, 0, tot_len);
-		seg6_build_tmpl_srh(segments, (struct ipv6_sr_hdr *)(opt2 + 1));
-		opt2->srcrt = (struct ipv6_rt_hdr *)(opt2 + 1);
-		opt2->srcrt_srh = 1;
-		opt2->opt_nflen = ipv6_optlen(opt2->srcrt);
-		np->opt = opt2;
-	}
 
 	final_p = fl6_update_dst(&fl6, np->opt, &final);
 
@@ -1081,7 +1060,6 @@ static struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	struct tcp_md5sig_key *key;
 #endif
 	struct flowi6 fl6;
-	struct seg6_list *segments;
 	struct ipv6_txoptions *opt2;
 	struct ipv6_sr_hdr *srhdr;
 	int tot_len;
@@ -1218,35 +1196,12 @@ static struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	   to newsk.
 	 */
 
-	/* TODO sysctl */
-	/*
-	 * If we have a matching entry for peer and no previous option was defined,
-	 * for example through setsockopt(), then apply to all future packets
-	 * of the connection.
-	 */
-	segments = seg6_get_segments(sock_net(newsk), &newsk->sk_v6_daddr);
-	if (!np->opt && segments) {
-		tot_len = CMSG_ALIGN(SEG6_HDR_BYTELEN(segments));
-		tot_len += sizeof(*opt2);
-
-		opt2 = sock_kmalloc(newsk, tot_len, GFP_ATOMIC);
-		memset(opt2, 0, tot_len);
-
-		seg6_build_tmpl_srh(segments, (struct ipv6_sr_hdr *)(opt2 + 1));
-
-		opt2->srcrt = (struct ipv6_rt_hdr *)(opt2 + 1);
-		opt2->srcrt_srh = 1;
-		opt2->opt_nflen = ipv6_optlen(opt2->srcrt);
-
-		newnp->opt = opt2;
-	}
-
 	/*
 	 * If there is no matching entry for peer and no previous option was defined,
 	 * and there is already an SRH present in the SYN packet, and we allow SRH
 	 * reversal, then apply reversed SRH to all future packets of the connection.
 	 */
-	if (!np->opt && !segments && IP6CB(skb)->srcrt > 0 && np->srhreverse) {
+	if (!np->opt && IP6CB(skb)->srcrt > 0 && np->srhreverse) {
 		srhdr = (struct ipv6_sr_hdr *)(skb_network_header(skb) + IP6CB(skb)->srcrt);
 
 		tot_len = CMSG_ALIGN((SEG6_SRH_SEGSIZE(srhdr)*16 + 8)); // do not copy hmac

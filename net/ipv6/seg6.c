@@ -163,43 +163,6 @@ struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
 }
 EXPORT_SYMBOL(seg6_get_segments);
 
-/*
- * Build 1:1 SRH without adding lasthop / removing first hop
- */
-void seg6_build_tmpl_srh(struct seg6_list *segments, struct ipv6_sr_hdr *srh)
-{
-	int flags = 0;
-
-	srh->hdrlen = SEG6_HDR_LEN(segments);
-	srh->type = IPV6_SRCRT_TYPE_4;
-	srh->segments_left = segments->seg_size;
-	srh->first_segment = segments->seg_size;
-
-	if (segments->cleanup)
-		flags |= SR6_FLAG_CLEANUP;
-
-	sr_set_flags(srh, flags);
-
-	if (segments->hmackeyid)
-		sr_set_hmac_key_id(srh, segments->hmackeyid);
-
-	/*
-	 * The number of segments allocated for @srh is segments->seg_size + 1
-	 * as defined in macro SEG6_HDR_BYTELEN. This is explained by the fact that
-	 * @segments contains only the intermediate segments, without the last segment
-	 * (i.e. the original destination).
-	 * This allows us to already place the first segment at the end of the list
-	 * as required by the specifications, so that we can track who is the first
-	 * segment.
-	 */
-
-	copy_segments_reverse(srh->segments + 1, segments->segments, segments->seg_size);
-
-	/* This will be the DA, let's fill with magic val in the meantime */
-	memset(srh->segments, 0x42, sizeof(struct in6_addr));
-}
-EXPORT_SYMBOL(seg6_build_tmpl_srh);
-
 void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse)
 {
 	int seg_size;
@@ -219,52 +182,59 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, 
 
 int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments)
 {
-	struct ipv6hdr *hdr;
+	struct ipv6hdr *hdr, *inner_hdr;
 	int tot_len;
 	struct ipv6_sr_hdr *srh;
-	int flags = 0;
 
-	tot_len = SEG6_HDR_BYTELEN(segments);
+	tot_len = SEG6_HDR_BYTELEN(segments) + sizeof(struct ipv6hdr);
 
 	if (pskb_expand_head(skb, tot_len, 0, GFP_ATOMIC)) {
 		printk(KERN_DEBUG "SR6: seg6_process_skb: cannot expand head\n");
 		return -1;
 	}
 
-	/*
-	 * Move the IPv6 header up to let place for the SRH
-	 */
-	memmove(skb_network_header(skb) - tot_len, skb_network_header(skb), sizeof(struct ipv6hdr));
+	/* save pointer to original IPv6 header that will become the inner IPv6 header */
+	inner_hdr = ipv6_hdr(skb);
 
-	/* update offsets and pointers */
+	/* make room for outer header + SRH */
 	skb_push(skb, tot_len);
-	skb->network_header -= tot_len;
+	skb_reset_network_header(skb);
 	hdr = ipv6_hdr(skb);
-	srh = (void *)hdr + sizeof(struct ipv6hdr);
 
-	skb->transport_header = skb->network_header + sizeof(struct ipv6hdr);
-
-	memset(srh, 0, tot_len);
-
-	srh->nexthdr = hdr->nexthdr;
-
+	/*
+	 * Initialize outer header with same tclass, flowlabel & hop limit.
+	 * Perhaps this should be made configurable ?
+	 */
+	ip6_flow_hdr(hdr, ip6_tclass(ip6_flowinfo(inner_hdr)), ip6_flowlabel(inner_hdr));
+	hdr->hop_limit = inner_hdr->hop_limit;
 	hdr->nexthdr = NEXTHDR_ROUTING;
-	hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
+
+	srh = (void *)hdr + sizeof(struct ipv6hdr);
+	memset(srh, 0, tot_len - sizeof(struct ipv6hdr));
+
+	srh->nexthdr = NEXTHDR_IPV6;
 
 	srh->hdrlen = SEG6_HDR_LEN(segments);
 	srh->type = IPV6_SRCRT_TYPE_4;
-	srh->segments_left = segments->seg_size;
-	srh->first_segment = segments->seg_size;
+	srh->segments_left = segments->seg_size - 1;
+	srh->first_segment = segments->seg_size - 1;
 
-	if (segments->cleanup)
-		flags |= SR6_FLAG_CLEANUP;
+	sr_set_flags(srh, segments->flags & SR6_FLAGMASK);
 
-	sr_set_flags(srh, flags);
+	copy_segments_reverse(srh->segments, segments->segments, segments->seg_size);
 
-	copy_segments_reverse(srh->segments + 1, segments->segments, segments->seg_size);
-	srh->segments[0] = hdr->daddr;
+	if (!(segments->flags & SR6_FLAG_EGRESS_PRESENT))
+		srh->segments[0] = inner_hdr->daddr;
 
 	hdr->daddr = segments->segments[0];
+
+	/* set router as source address */
+	ipv6_dev_get_saddr(net, skb->dev, &hdr->daddr, IPV6_PREFER_SRC_PUBLIC, &hdr->saddr);
+
+	hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
+
+	/* reset transport header to SRH, needed if packet is locally processed */
+	skb_set_transport_header(skb, sizeof(struct ipv6hdr));
 
 	if (segments->hmackeyid) {
 		char *key;
@@ -649,7 +619,7 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 
 	tmp->id = seglist_id;
 	tmp->seg_size = seg_len;
-	tmp->cleanup = (flags & SR6_FLAG_CLEANUP) ? 1 : 0;
+	tmp->flags = flags;
 	tmp->hmackeyid = nla_get_u8(info->attrs[SEG6_ATTR_HMACKEYID]);
 	tmp->segments = kmalloc(seg_len*sizeof(struct in6_addr), GFP_KERNEL);
 	if (!tmp->segments) {
@@ -804,7 +774,7 @@ static int seg6_genl_dump(struct sk_buff *skb, struct genl_info *info)
 				if (nla_put_s32(msg, SEG6_ATTR_SEGLEN, list->seg_size))
 					goto nla_put_failure;
 
-				if (nla_put_u32(msg, SEG6_ATTR_FLAGS, ((list->cleanup & 0x1) << 3)))
+				if (nla_put_u32(msg, SEG6_ATTR_FLAGS, list->flags))
 					goto nla_put_failure;
 
 				if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, list->hmackeyid))

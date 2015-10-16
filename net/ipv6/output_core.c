@@ -124,15 +124,10 @@ EXPORT_SYMBOL_GPL(__ip6_local_out);
 int ip6_local_out(struct sk_buff *skb)
 {
 	int err;
-	struct net *net = dev_net(skb_dst(skb)->dev);
 
 	err = __ip6_local_out(skb);
-	if (likely(err == 1)) {
-		if (seg6_process_skb(net, skb))
-			ip6_route_me_harder(skb);
-
+	if (likely(err == 1))
 		err = dst_output(skb);
-	}
 
 	return err;
 }

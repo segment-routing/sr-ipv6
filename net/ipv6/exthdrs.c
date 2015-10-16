@@ -376,23 +376,35 @@ looped_back:
 		if (hdr->segments_left == 1 && sr_get_flags(hdr) & SR6_FLAG_CLEANUP)
 			cleanup = 1;
 	} else {
+		if (hdr->nexthdr == NEXTHDR_IPV6) {
+			if (__prepare_mod_skb(net, skb) < 0)
+				return -1;
+
+			hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
+
+			skb_pull(skb, (hdr->hdrlen + 1) << 3);
+			skb_reset_network_header(skb);
+			skb_reset_transport_header(skb);
+			skb_dst_drop(skb);
+
+			skb->transport_header = skb->network_header + sizeof(struct ipv6hdr);
+
+			ip6_route_input(skb);
+			dst_input(skb);
+			return -1;
+		}
+
 		opt->lastopt = opt->srcrt = skb_network_header_len(skb);
 		skb->transport_header += (hdr->hdrlen + 1) << 3;
 		opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
+
 		return 1;
 	}
 
-	if (skb_cloned(skb)) {
-		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
-			IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
-					IPSTATS_MIB_OUTDISCARDS);
-			kfree_skb(skb);
-			return -1;
-		}
-		hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
-	}
-	if (skb->ip_summed == CHECKSUM_COMPLETE)
-		skb->ip_summed = CHECKSUM_NONE;
+	if (__prepare_mod_skb(net, skb) < 0)
+		return -1;
+
+	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
 	active_addr = hdr->segments + hdr->segments_left;
 	hdr->segments_left--;
