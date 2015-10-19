@@ -27,6 +27,11 @@
 /* flags <= 0xf reserved for SRH */
 #define SR6_FLAG_EGRESS_PRESENT 0x10
 
+struct seg6_policy {
+	unsigned int flags;
+	struct in6_addr entry;
+};
+
 struct seg6_list {
 	struct seg6_list *next;
 	struct in6_addr *segments;
@@ -34,7 +39,37 @@ struct seg6_list {
 	unsigned int flags;
 	u16 id;
 	u8 hmackeyid;
+	struct seg6_policy pol[4];
 };
+
+#define SEG6_POL_FLAGS(seg, idx) ((seg)->pol[(idx)].flags)
+#define SEG6_POL_ENTRY(seg, idx) (&((seg)->pol[(idx)].entry))
+#define SEG6_POL_PRESENT(seg, idx) (SEG6_POL_FLAGS(seg, idx) > 0)
+#define SEG6_SRH_POL_SIZE(srh) ((sr_get_flag_p1(srh) > 0) + (sr_get_flag_p2(srh) > 0) + (sr_get_flag_p3(srh) > 0) + (sr_get_flag_p4(srh) > 0))
+#define SEG6_SRH_POL_ENTRY(srh, idx) ((srh)->segments + SEG6_SRH_SEGSIZE(srh) + idx)
+
+static inline int seg6_pol_size(struct seg6_list *seg)
+{
+	int i, cnt = 0;
+
+	for (i = 0; i < 4; i++)
+		cnt += SEG6_POL_PRESENT(seg, i);
+
+	return cnt;
+}
+
+static inline int seg6_pol_valid(struct seg6_list *seg)
+{
+	int i, gap = 0;
+
+	for (i = 0; i < 4; i++)
+		if (!SEG6_POL_PRESENT(seg, i))
+			gap = 1;
+		else if (gap)
+			return 0;
+
+	return 1;
+}
 
 struct seg6_info {
 	struct in6_addr dst;
@@ -88,7 +123,7 @@ extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_dat
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
 
-#define SEG6_HDR_BYTELEN(seglist) (8 + 16*((seglist)->seg_size) + ((seglist)->hmackeyid ? 32 : 0))
+#define SEG6_HDR_BYTELEN(seglist) (8 + 16*((seglist)->seg_size) + ((seglist)->hmackeyid ? 32 : 0) + 16*seg6_pol_size(seglist))
 #define SEG6_HDR_LEN(seglist) ((SEG6_HDR_BYTELEN(seglist) >> 3) - 1)
 
 #define SEG6_SRH_SEGSIZE(srh) ((srh)->first_segment + 1)

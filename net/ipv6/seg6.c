@@ -212,6 +212,7 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 	srh = (void *)hdr + sizeof(struct ipv6hdr);
 	memset(srh, 0, tot_len - sizeof(struct ipv6hdr));
 
+	/* populate header */
 	srh->nexthdr = NEXTHDR_IPV6;
 
 	srh->hdrlen = SEG6_HDR_LEN(segments);
@@ -221,6 +222,34 @@ int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *s
 
 	sr_set_flags(srh, segments->flags & SR6_FLAGMASK);
 
+	/* populate policies */
+	if (seg6_pol_size(segments) > 0) {
+		if (SEG6_POL_PRESENT(segments, 0)) {
+			sr_set_flag_p1(srh, SEG6_POL_FLAGS(segments, 0));
+			memcpy(SEG6_SRH_POL_ENTRY(srh, 0), SEG6_POL_ENTRY(segments, 0), sizeof(struct in6_addr));
+		} else
+			goto populate_segs;
+
+		if (SEG6_POL_PRESENT(segments, 1)) {
+			sr_set_flag_p2(srh, SEG6_POL_FLAGS(segments, 1));
+			memcpy(SEG6_SRH_POL_ENTRY(srh, 1), SEG6_POL_ENTRY(segments, 1), sizeof(struct in6_addr));
+		} else
+			goto populate_segs;
+
+		if (SEG6_POL_PRESENT(segments, 2)) {
+			sr_set_flag_p3(srh, SEG6_POL_FLAGS(segments, 2));
+			memcpy(SEG6_SRH_POL_ENTRY(srh, 2), SEG6_POL_ENTRY(segments, 2), sizeof(struct in6_addr));
+		} else
+			goto populate_segs;
+
+		if (SEG6_POL_PRESENT(segments, 3)) {
+			sr_set_flag_p4(srh, SEG6_POL_FLAGS(segments, 3));
+			memcpy(SEG6_SRH_POL_ENTRY(srh, 3), SEG6_POL_ENTRY(segments, 3), sizeof(struct in6_addr));
+		}
+	}
+
+	/* populate segments */
+populate_segs:
 	copy_segments_reverse(srh->segments, segments->segments, segments->seg_size);
 
 	if (!(segments->flags & SR6_FLAG_EGRESS_PRESENT))
@@ -388,6 +417,8 @@ enum {
 	SEG6_ATTR_BINDINFO,
 	SEG6_ATTR_PACKET_DATA,
 	SEG6_ATTR_PACKET_LEN,
+	SEG6_ATTR_POLICY_DATA,
+	SEG6_ATTR_POLICY_LEN,
 	__SEG6_ATTR_MAX,
 };
 
@@ -412,6 +443,8 @@ static struct nla_policy seg6_genl_policy[SEG6_ATTR_MAX + 1] = {
 	[SEG6_ATTR_BINDINFO]		= {	.type = NLA_NESTED, },
 	[SEG6_ATTR_PACKET_DATA]		= { .type = NLA_BINARY, },
 	[SEG6_ATTR_PACKET_LEN]		= { .type = NLA_S32, },
+	[SEG6_ATTR_POLICY_DATA]		= { .type = NLA_BINARY, },
+	[SEG6_ATTR_POLICY_LEN]		= { .type = NLA_S32, },
 };
 
 static struct genl_family seg6_genl_family = {
@@ -573,10 +606,12 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 	u16 seglist_id;
 	struct s6ib_node *node;
 	struct net *net = genl_info_net(info);
+	struct seg6_policy *pol_data;
+	int pol_len;
 
 	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_DSTLEN] || !info->attrs[SEG6_ATTR_SEGLISTID] ||
 		!info->attrs[SEG6_ATTR_FLAGS] || !info->attrs[SEG6_ATTR_HMACKEYID] || !info->attrs[SEG6_ATTR_SEGMENTS] ||
-		!info->attrs[SEG6_ATTR_SEGLEN])
+		!info->attrs[SEG6_ATTR_SEGLEN] || !info->attrs[SEG6_ATTR_POLICY_DATA] || !info->attrs[SEG6_ATTR_POLICY_LEN])
 		return -EINVAL;
 
 	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
@@ -584,6 +619,11 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 	seglist_id = nla_get_u16(info->attrs[SEG6_ATTR_SEGLISTID]);
 	seg_len = nla_get_s32(info->attrs[SEG6_ATTR_SEGLEN]);
 	flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
+	pol_data = (struct seg6_policy *)nla_data(info->attrs[SEG6_ATTR_POLICY_DATA]);
+	pol_len = nla_get_s32(info->attrs[SEG6_ATTR_POLICY_LEN]);
+
+	if (pol_len > 4*sizeof(struct seg6_policy))
+		return -EINVAL;
 
 	hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[seg6_hashfn(dst)], seg_chain) {
 		if (memcmp(s6info->dst.s6_addr, dst->s6_addr, 16) == 0 && s6info->dst_len == dst_len) {
@@ -628,6 +668,13 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	memcpy(tmp->segments, nla_data(info->attrs[SEG6_ATTR_SEGMENTS]), seg_len*sizeof(struct in6_addr));
+
+	memcpy(tmp->pol, pol_data, pol_len);
+	if (!seg6_pol_valid(tmp)) {
+		kfree(tmp->segments);
+		kfree(tmp);
+		return -EINVAL;
+	}
 
 	tmp->next = s6info->list;
 	s6info->list = tmp;
@@ -781,6 +828,12 @@ static int seg6_genl_dump(struct sk_buff *skb, struct genl_info *info)
 					goto nla_put_failure;
 
 				if (nla_put(msg, SEG6_ATTR_SEGMENTS, list->seg_size*sizeof(struct in6_addr), list->segments))
+					goto nla_put_failure;
+
+				if (nla_put_s32(msg, SEG6_ATTR_POLICY_LEN, seg6_pol_size(list)*sizeof(struct seg6_policy)))
+					goto nla_put_failure;
+
+				if (nla_put(msg, SEG6_ATTR_POLICY_DATA, seg6_pol_size(list)*sizeof(struct seg6_policy), list->pol))
 					goto nla_put_failure;
 
 				nla_nest_end(msg, nla);
