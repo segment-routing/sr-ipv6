@@ -115,8 +115,10 @@ static struct seg6_cache *seg6_lookup_cache(struct net *net, struct in6_addr *ds
 	struct seg6_cache *cache;
 
 	hlist_for_each_entry_rcu(cache, &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)], cache_chain) {
-		if (memcmp(cache->dst.s6_addr, dst->s6_addr, 16) == 0)
+		if (memcmp(cache->dst.s6_addr, dst->s6_addr, 16) == 0) {
+			atomic_inc(&cache->ref);
 			return cache;
+		}
 	}
 
 	return NULL;
@@ -129,8 +131,17 @@ static void seg6_insert_cache(struct net *net, struct in6_addr *dst, struct seg6
 	cache = kzalloc(sizeof(*cache), GFP_KERNEL);
 	memcpy(&cache->dst, dst, sizeof(*dst));
 	cache->info = info;
+	atomic_set(&cache->ref, 1);
+	atomic_inc(&info->ref);
 
 	hlist_add_head_rcu(&cache->cache_chain, &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)]);
+}
+
+static void __seg6_remove_cache(struct net *net, struct seg6_cache *cache)
+{
+	hlist_del_rcu(&cache->cache_chain);
+	seg6_release_info(cache->info);
+	seg6_release_cache(cache);
 }
 
 static void seg6_remove_cache(struct net *net, struct in6_addr *dst)
@@ -141,10 +152,8 @@ static void seg6_remove_cache(struct net *net, struct in6_addr *dst)
 	if (!cache)
 		return;
 
-	hlist_del_rcu(&cache->cache_chain);
-	kfree(cache);
+	__seg6_remove_cache(net, cache);
 }
-
 
 void seg6_flush_cache(struct net *net)
 {
@@ -154,7 +163,7 @@ void seg6_flush_cache(struct net *net)
 
     for (i = 0; i < 4096; i++) {
         hlist_for_each_entry_safe(cache, itmp, &net->ipv6.seg6_cache_hash[i], cache_chain) {
-			seg6_remove_cache(net, &cache->dst);
+			__seg6_remove_cache(net, cache);
         }
     }
 }
@@ -172,6 +181,8 @@ struct seg6_info *seg6_segment_lookup(struct net *net, struct in6_addr *dst)
 
 	if (info->list_size == 0)
 		return NULL;
+
+	atomic_inc(&info->ref);
 
 	return info;
 }
@@ -196,22 +207,6 @@ struct seg6_list *seg6_pick_segments(struct seg6_info *info)
 	return list_node;
 }
 EXPORT_SYMBOL(seg6_pick_segments);
-
-struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst)
-{
-	struct seg6_info *seg_info;
-	struct seg6_list *segments;
-
-	seg_info = seg6_segment_lookup(net, dst);
-
-	if (seg_info == NULL)
-		return 0;
-
-	segments = seg6_pick_segments(seg_info);
-
-	return segments;
-}
-EXPORT_SYMBOL(seg6_get_segments);
 
 void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse)
 {
@@ -355,20 +350,22 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 	struct seg6_info *seg_info = NULL;
 	struct seg6_list *segments;
 	struct seg6_cache *seg_cache = NULL;
+	int err = 0;
 
 	if (IP6CB(skb)->flags & IP6SKB_SEG6_PROCESSED)
-		return 0;
+		goto out;
 
 	hdr = ipv6_hdr(skb);
 
 	/* TODO add sysctl */
 	if (hdr->nexthdr == NEXTHDR_ROUTING)
-		return 0;
+		goto out;
 
 	if (seg6_enable_caching) {
 		if ((seg_cache = seg6_lookup_cache(net, &hdr->daddr)) != NULL) {
 			/* TODO check expiration */
 			seg_info = seg_cache->info;
+			atomic_inc(&seg_info->ref);
 		}
 	}
 
@@ -376,7 +373,7 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 		seg_info = seg6_segment_lookup(net, &hdr->daddr);
 
 	if (seg_info == NULL)
-		return 0;
+		goto out_release;
 
 	if (!seg_cache && seg6_enable_caching)
 		seg6_insert_cache(net, &hdr->daddr, seg_info);
@@ -384,15 +381,21 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 	segments = seg6_pick_segments(seg_info);
 
 	if (__seg6_process_skb(net, skb, segments, seg_cache) < 0)
-		return 0;
+		goto out_release;
 
 	IP6CB(skb)->flags |= IP6SKB_SEG6_PROCESSED;
 
-	return 1;
+out_release:
+	if (seg_cache)
+		seg6_release_cache(seg_cache);
+	if (seg_info)
+		seg6_release_info(seg_info);
+out:
+	return err;
 }
 EXPORT_SYMBOL(seg6_process_skb);
 
-static void __seg6_flush_segment(struct seg6_info *info)
+void __seg6_flush_segment(struct seg6_info *info)
 {
 	struct seg6_list *list;
 
@@ -438,10 +441,9 @@ void seg6_flush_segments(struct net *net)
 
 	for (i = 0; i < 4096; i++) {
 		hlist_for_each_entry_safe(s6info, itmp, &net->ipv6.seg6_hash[i], seg_chain) {
-			__seg6_flush_segment(s6info);
-			hlist_del_rcu(&s6info->seg_chain);
 			seg6_route_delete(net->ipv6.seg6_fib_root, &s6info->dst, s6info->dst_len);
-			kfree(s6info);
+			hlist_del_rcu(&s6info->seg_chain);
+			seg6_release_info(s6info);
 		}
 	}
 }
@@ -726,6 +728,7 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 
 		memcpy(s6info->dst.s6_addr, dst->s6_addr, 16);
 		s6info->dst_len = dst_len;
+		atomic_set(&s6info->ref, 1);
 
 		node = seg6_route_insert(net->ipv6.seg6_fib_root, s6info);
 		if (IS_ERR(node)) {
@@ -865,8 +868,8 @@ static int seg6_genl_flush(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
 
-	seg6_flush_segments(net);
 	seg6_flush_cache(net);
+	seg6_flush_segments(net);
 
 	return 0;
 }

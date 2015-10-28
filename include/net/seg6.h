@@ -27,6 +27,19 @@
 /* flags <= 0xf reserved for SRH */
 #define SR6_FLAG_EGRESS_PRESENT 0x10
 
+struct seg6_info;
+
+extern void seg6_flush_segments(struct net *net);
+extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
+extern int seg6_process_skb(struct net *net, struct sk_buff *skb);
+extern void seg6_init_sysctl(void);
+extern void seg6_nl_init(void);
+extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse);
+extern struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment);
+extern int seg6_bib_remove(struct net *net, struct in6_addr *addr);
+extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data);
+extern void __seg6_flush_segment(struct seg6_info *info);
+
 struct seg6_policy {
 	unsigned int flags;
 	struct in6_addr entry;
@@ -78,6 +91,8 @@ struct seg6_info {
 	int list_size;
 	struct seg6_list *list;
 
+	atomic_t ref;
+
 	struct hlist_node seg_chain;
 };
 
@@ -87,8 +102,24 @@ struct seg6_cache {
 	int src_set;
 	struct seg6_info *info;
 
+	atomic_t ref;
+
 	struct hlist_node cache_chain;
 };
+
+static inline void seg6_release_info(struct seg6_info *info)
+{
+	if (atomic_dec_and_test(&info->ref)) {
+		__seg6_flush_segment(info);
+		kfree(info);
+	}
+}
+
+static inline void seg6_release_cache(struct seg6_cache *cache)
+{
+	if (atomic_dec_and_test(&cache->ref))
+		kfree(cache);
+}
 
 /* Binding-SID Information Base */
 #define SEG6_BIND_NEXT			0	/* aka no-op, classical sr processing */
@@ -116,17 +147,6 @@ struct seg6_bib_node {
 	 * SERVICE:		u32 *
 	 */
 };
-
-extern void seg6_flush_segments(struct net *net);
-extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
-extern int seg6_process_skb(struct net *net, struct sk_buff *skb);
-extern struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst);
-extern void seg6_init_sysctl(void);
-extern void seg6_nl_init(void);
-extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse);
-extern struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment);
-extern int seg6_bib_remove(struct net *net, struct in6_addr *addr);
-extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data);
 
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
