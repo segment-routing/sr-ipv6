@@ -230,7 +230,7 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, 
 	memset(hdr_to->segments, 0x42, sizeof(struct in6_addr));
 }
 
-int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments)
+static int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments, struct seg6_cache *s6cache)
 {
 	struct ipv6hdr *hdr, *inner_hdr;
 	int tot_len;
@@ -308,8 +308,21 @@ populate_segs:
 	hdr->daddr = segments->segments[0];
 
 	/* set router as source address */
-	ipv6_dev_get_saddr(net, skb->dev, &hdr->daddr, IPV6_PREFER_SRC_PUBLIC, &hdr->saddr);
+	if (!s6cache || !s6cache->src_set) {
+		ipv6_dev_get_saddr(net, skb->dev, &hdr->daddr, IPV6_PREFER_SRC_PUBLIC, &hdr->saddr);
+	}
 
+	if (!s6cache)
+		goto skip_cache;
+
+	if (!s6cache->src_set) {
+		memcpy(&s6cache->self_src, &hdr->saddr, sizeof(struct in6_addr));
+		s6cache->src_set = 1;
+	} else {
+		memcpy(&hdr->saddr, &s6cache->self_src, sizeof(struct in6_addr));
+	}
+
+skip_cache:
 	hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
 	/* reset transport header to SRH, needed if packet is locally processed */
@@ -370,7 +383,7 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 
 	segments = seg6_pick_segments(seg_info);
 
-	if (__seg6_process_skb(net, skb, segments) < 0)
+	if (__seg6_process_skb(net, skb, segments, seg_cache) < 0)
 		return 0;
 
 	IP6CB(skb)->flags |= IP6SKB_SEG6_PROCESSED;

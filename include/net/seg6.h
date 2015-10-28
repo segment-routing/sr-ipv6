@@ -83,6 +83,8 @@ struct seg6_info {
 
 struct seg6_cache {
 	struct in6_addr dst;
+	struct in6_addr self_src;
+	int src_set;
 	struct seg6_info *info;
 
 	struct hlist_node cache_chain;
@@ -117,7 +119,6 @@ struct seg6_bib_node {
 
 extern void seg6_flush_segments(struct net *net);
 extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
-extern int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments);
 extern int seg6_process_skb(struct net *net, struct sk_buff *skb);
 extern struct seg6_list *seg6_get_segments(struct net *net, struct in6_addr *dst);
 extern void seg6_init_sysctl(void);
