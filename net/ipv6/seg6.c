@@ -48,6 +48,7 @@
 
 int seg6_srh_reversal = 0;
 int seg6_hmac_strict_key = 0;
+int seg6_enable_caching = 0;
 
 static inline void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src, int size)
 {
@@ -107,6 +108,55 @@ int seg6_bib_remove(struct net *net, struct in6_addr *addr)
 	}
 
 	return 0;
+}
+
+static struct seg6_cache *seg6_lookup_cache(struct net *net, struct in6_addr *dst)
+{
+	struct seg6_cache *cache;
+
+	hlist_for_each_entry_rcu(cache, &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)], cache_chain) {
+		if (memcmp(cache->dst.s6_addr, dst->s6_addr, 16) == 0)
+			return cache;
+	}
+
+	return NULL;
+}
+
+static void seg6_insert_cache(struct net *net, struct in6_addr *dst, struct seg6_info *info)
+{
+	struct seg6_cache *cache;
+
+	cache = kzalloc(sizeof(*cache), GFP_KERNEL);
+	memcpy(&cache->dst, dst, sizeof(*dst));
+	cache->info = info;
+
+	hlist_add_head_rcu(&cache->cache_chain, &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)]);
+}
+
+static void seg6_remove_cache(struct net *net, struct in6_addr *dst)
+{
+	struct seg6_cache *cache;
+
+	cache = seg6_lookup_cache(net, dst);
+	if (!cache)
+		return;
+
+	hlist_del_rcu(&cache->cache_chain);
+	kfree(cache);
+}
+
+
+void seg6_flush_cache(struct net *net)
+{
+    struct seg6_cache *cache;
+    struct hlist_node *itmp;
+    int i;
+
+    for (i = 0; i < 4096; i++) {
+        hlist_for_each_entry_safe(cache, itmp, &net->ipv6.seg6_cache_hash[i], cache_chain) {
+			seg6_remove_cache(net, &cache->dst);
+        }
+    }
 }
 
 struct seg6_info *seg6_segment_lookup(struct net *net, struct in6_addr *dst)
@@ -289,8 +339,9 @@ populate_segs:
 int seg6_process_skb(struct net *net, struct sk_buff *skb)
 {
 	struct ipv6hdr *hdr;
-	struct seg6_info *seg_info;
+	struct seg6_info *seg_info = NULL;
 	struct seg6_list *segments;
+	struct seg6_cache *seg_cache = NULL;
 
 	if (IP6CB(skb)->flags & IP6SKB_SEG6_PROCESSED)
 		return 0;
@@ -301,10 +352,21 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 	if (hdr->nexthdr == NEXTHDR_ROUTING)
 		return 0;
 
-	seg_info = seg6_segment_lookup(net, &hdr->daddr);
+	if (seg6_enable_caching) {
+		if ((seg_cache = seg6_lookup_cache(net, &hdr->daddr)) != NULL) {
+			/* TODO check expiration */
+			seg_info = seg_cache->info;
+		}
+	}
+
+	if (!seg_info)
+		seg_info = seg6_segment_lookup(net, &hdr->daddr);
 
 	if (seg_info == NULL)
 		return 0;
+
+	if (!seg_cache && seg6_enable_caching)
+		seg6_insert_cache(net, &hdr->daddr, seg_info);
 
 	segments = seg6_pick_segments(seg_info);
 
@@ -390,6 +452,13 @@ static struct ctl_table seg6_table[] = {
 	{
 		.procname	= "hmac_strict_key",
 		.data		= &seg6_hmac_strict_key,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
+	},
+	{
+		.procname	= "enable_caching",
+		.data		= &seg6_enable_caching,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec
@@ -784,6 +853,7 @@ static int seg6_genl_flush(struct sk_buff *skb, struct genl_info *info)
 	struct net *net = genl_info_net(info);
 
 	seg6_flush_segments(net);
+	seg6_flush_cache(net);
 
 	return 0;
 }

@@ -3262,6 +3262,17 @@ static int __net_init seg6_init(struct net *net)
 
 	net->ipv6.seg6_bib_head = NULL;
 
+	net->ipv6.seg6_cache_hash = kzalloc(4096*sizeof(struct hlist_head), GFP_KERNEL);
+	if (!net->ipv6.seg6_cache_hash) {
+		kfree(net->ipv6.seg6_hmac_table);
+		kfree(net->ipv6.seg6_fib_root);
+		kfree(net->ipv6.seg6_hash);
+		return 1;
+	}
+
+	for (i = 0; i < 4096; i++)
+		INIT_HLIST_HEAD(&net->ipv6.seg6_cache_hash[i]);
+
 	pr_info("SR-IPv6: Release v0.02\n");
 
 	return 0;

@@ -81,6 +81,13 @@ struct seg6_info {
 	struct hlist_node seg_chain;
 };
 
+struct seg6_cache {
+	struct in6_addr dst;
+	struct seg6_info *info;
+
+	struct hlist_node cache_chain;
+};
+
 /* Binding-SID Information Base */
 #define SEG6_BIND_NEXT			0	/* aka no-op, classical sr processing */
 #define SEG6_BIND_ROUTE 		1	/* force route through given next hop */
