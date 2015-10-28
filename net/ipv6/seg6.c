@@ -292,6 +292,9 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 	struct seg6_info *seg_info;
 	struct seg6_list *segments;
 
+	if (IP6CB(skb)->flags & IP6SKB_SEG6_PROCESSED)
+		return 0;
+
 	hdr = ipv6_hdr(skb);
 
 	/* TODO add sysctl */
@@ -307,6 +310,8 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 
 	if (__seg6_process_skb(net, skb, segments) < 0)
 		return 0;
+
+	IP6CB(skb)->flags |= IP6SKB_SEG6_PROCESSED;
 
 	return 1;
 }

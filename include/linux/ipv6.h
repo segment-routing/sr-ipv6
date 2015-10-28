@@ -112,6 +112,7 @@ struct inet6_skb_parm {
 #define IP6SKB_REROUTED		4
 #define IP6SKB_ROUTERALERT	8
 #define IP6SKB_FRAGMENTED      16
+#define IP6SKB_SEG6_PROCESSED	32
 };
 
 #define IP6CB(skb)	((struct inet6_skb_parm*)((skb)->cb))
