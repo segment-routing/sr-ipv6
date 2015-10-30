@@ -377,12 +377,23 @@ looped_back:
 			cleanup = 1;
 	} else {
 		if (hdr->nexthdr == NEXTHDR_IPV6) {
-			if (__prepare_mod_skb(net, skb) < 0)
-				return -1;
+			struct sk_buff *skb2;
+			if (skb->ip_summed == CHECKSUM_COMPLETE)
+				skb->ip_summed = CHECKSUM_NONE;
+
+			if (skb->data_len > 0) {
+				skb2 = skb_copy(skb, GFP_ATOMIC);
+				kfree_skb(skb);
+				skb = skb2;
+			}
 
 			hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
-			skb_pull(skb, (hdr->hdrlen + 1) << 3);
+			if (!pskb_pull(skb, (hdr->hdrlen + 1) << 3)) {
+				printk(KERN_DEBUG "SR-IPv6: pskb_pull failed for srh decap\n");
+				kfree_skb(skb);
+				return -1;
+			}
 			skb_reset_network_header(skb);
 			skb_reset_transport_header(skb);
 			skb_dst_drop(skb);
