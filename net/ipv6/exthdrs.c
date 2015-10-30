@@ -377,17 +377,8 @@ looped_back:
 			cleanup = 1;
 	} else {
 		if (hdr->nexthdr == NEXTHDR_IPV6) {
-			struct sk_buff *skb2;
 			if (skb->ip_summed == CHECKSUM_COMPLETE)
 				skb->ip_summed = CHECKSUM_NONE;
-
-			if (skb->data_len > 0) {
-				skb2 = skb_copy(skb, GFP_ATOMIC);
-				kfree_skb(skb);
-				skb = skb2;
-			}
-
-			hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
 			if (!pskb_pull(skb, (hdr->hdrlen + 1) << 3)) {
 				printk(KERN_DEBUG "SR-IPv6: pskb_pull failed for srh decap\n");
@@ -398,10 +389,7 @@ looped_back:
 			skb_reset_transport_header(skb);
 			skb_dst_drop(skb);
 
-			skb->transport_header = skb->network_header + sizeof(struct ipv6hdr);
-
-			ip6_route_input(skb);
-			dst_input(skb);
+			netif_rx(skb);
 			return -1;
 		}
 
