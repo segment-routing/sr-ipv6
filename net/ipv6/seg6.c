@@ -384,6 +384,7 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 		goto out_release;
 
 	IP6CB(skb)->flags |= IP6SKB_SEG6_PROCESSED;
+	err = 1;
 
 out_release:
 	if (seg_cache)
