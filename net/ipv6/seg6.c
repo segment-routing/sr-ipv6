@@ -49,6 +49,7 @@
 int seg6_srh_reversal = 0;
 int seg6_hmac_strict_key = 0;
 int seg6_enable_caching = 0;
+int seg6_enabled = 1;
 
 static inline void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src, int size)
 {
@@ -352,14 +353,17 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 	struct seg6_cache *seg_cache = NULL;
 	int err = 0;
 
+	if (!seg6_enabled)
+		return 0;
+
 	if (IP6CB(skb)->flags & IP6SKB_SEG6_PROCESSED)
-		goto out;
+		return 0;
 
 	hdr = ipv6_hdr(skb);
 
 	/* TODO add sysctl */
 	if (hdr->nexthdr == NEXTHDR_ROUTING)
-		goto out;
+		return 0;
 
 	if (seg6_enable_caching) {
 		if ((seg_cache = seg6_lookup_cache(net, &hdr->daddr)) != NULL) {
@@ -384,6 +388,7 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 		goto out_release;
 
 	IP6CB(skb)->flags |= IP6SKB_SEG6_PROCESSED;
+
 	err = 1;
 
 out_release:
@@ -391,7 +396,7 @@ out_release:
 		seg6_release_cache(seg_cache);
 	if (seg_info)
 		seg6_release_info(seg_info);
-out:
+
 	return err;
 }
 EXPORT_SYMBOL(seg6_process_skb);
@@ -475,6 +480,13 @@ static struct ctl_table seg6_table[] = {
 	{
 		.procname	= "enable_caching",
 		.data		= &seg6_enable_caching,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
+	},
+	{
+		.procname	= "enabled",
+		.data		= &seg6_enabled,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec
