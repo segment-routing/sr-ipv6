@@ -53,6 +53,7 @@ struct ipv6_devconf {
 	__s32           ndisc_notify;
 	__s32		suppress_frag_ndisc;
 	__s32		seg6_require_hmac;
+	__s32		seg6_enabled;
 	__s32		accept_ra_mtu;
 	struct ipv6_stable_secret {
 		bool initialized;

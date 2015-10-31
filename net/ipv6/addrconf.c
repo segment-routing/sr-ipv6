@@ -209,6 +209,7 @@ static struct ipv6_devconf ipv6_devconf __read_mostly = {
 	.accept_dad		= 1,
 	.suppress_frag_ndisc	= 1,
 	.seg6_require_hmac	= 0,
+	.seg6_enabled		= 1,
 	.accept_ra_mtu		= 1,
 	.stable_secret		= {
 		.initialized = false,
@@ -251,6 +252,7 @@ static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
 	.accept_dad		= 1,
 	.suppress_frag_ndisc	= 1,
 	.seg6_require_hmac	= 0,
+	.seg6_enabled		= 1,
 	.accept_ra_mtu		= 1,
 	.stable_secret		= {
 		.initialized = false,
@@ -4584,6 +4586,7 @@ static inline void ipv6_store_devconf(struct ipv6_devconf *cnf,
 	array[DEVCONF_NDISC_NOTIFY] = cnf->ndisc_notify;
 	array[DEVCONF_SUPPRESS_FRAG_NDISC] = cnf->suppress_frag_ndisc;
 	array[DEVCONF_SEG6_REQUIRE_HMAC] = cnf->seg6_require_hmac;
+	array[DEVCONF_SEG6_ENABLED] = cnf->seg6_enabled;
 	array[DEVCONF_ACCEPT_RA_FROM_LOCAL] = cnf->accept_ra_from_local;
 	array[DEVCONF_ACCEPT_RA_MTU] = cnf->accept_ra_mtu;
 	/* we omit DEVCONF_STABLE_SECRET for now */
@@ -5567,6 +5570,13 @@ static struct addrconf_sysctl_table
 		{
 			.procname	= "seg6_require_hmac",
 			.data		= &ipv6_devconf.seg6_require_hmac,
+			.maxlen		= sizeof(int),
+			.mode		= 0644,
+			.proc_handler	= proc_dointvec
+		},
+		{
+			.procname	= "seg6_enabled",
+			.data		= &ipv6_devconf.seg6_enabled,
 			.maxlen		= sizeof(int),
 			.mode		= 0644,
 			.proc_handler	= proc_dointvec

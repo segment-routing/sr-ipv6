@@ -352,8 +352,13 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 	struct seg6_list *segments;
 	struct seg6_cache *seg_cache = NULL;
 	int err = 0;
+	struct inet6_dev *idev;
 
 	if (!seg6_enabled)
+		return 0;
+
+	idev = __in6_dev_get(skb->dev);
+	if (idev->cnf.seg6_enabled == 0)
 		return 0;
 
 	if (IP6CB(skb)->flags & IP6SKB_SEG6_PROCESSED)
