@@ -437,7 +437,7 @@ looped_back:
 
 	ipv6_hdr(skb)->daddr = *addr;
 
-	skb_push(skb, skb->data - skb_network_header(skb));
+	skb_push(skb, sizeof(struct ipv6hdr));
 
 	/* cleanup */
 
@@ -475,6 +475,7 @@ looped_back:
 			return -1;
 		}
 		ipv6_hdr(skb)->hop_limit--;
+		skb_pull(skb, sizeof(struct ipv6hdr));
 		goto looped_back;
 	}
 
