@@ -22,7 +22,7 @@
 #include <linux/route.h>
 #include <net/seg6.h>
 
-#define SEG6_HMAC(srh) ((srh)->segments + SEG6_SRH_SEGSIZE(srh) + SEG6_SRH_POL_SIZE(srh))
+#define SEG6_HMAC(s) ((s)->segments+SEG6_SRH_SEGSIZE(s)+seg6_srh_pol_size(s))
 #define SEG6_HMAC_MAX_SIZE  64
 
 struct seg6_hmac_info {
@@ -31,7 +31,8 @@ struct seg6_hmac_info {
 	u8 alg_id;
 };
 
-extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
+extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
+			struct in6_addr *saddr, u32 *output);
 extern char seg6_hmac_key[];
 
 #endif

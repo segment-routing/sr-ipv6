@@ -61,7 +61,7 @@ struct ipv6_rt_hdr {
  */
 struct ipv6_sr_hdr {
 	__u8		nexthdr;
-	__u8		hdrlen;			 // 8-octet units
+	__u8		hdrlen;
 	__u8		type;
 	__u8		segments_left;
 	__u8		first_segment;

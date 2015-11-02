@@ -68,9 +68,6 @@
 #include <linux/sysctl.h>
 #endif
 
-#define seg6_addrto64(addr) ((u64)((u64)(addr)->s6_addr[0] << 56 | (u64)(addr)->s6_addr[1] << 48 | (u64)(addr)->s6_addr[2] << 40 | (u64)(addr)->s6_addr[3] << 32 | (addr)->s6_addr[12] << 24 | (addr)->s6_addr[13] << 16 | (addr)->s6_addr[14] << 8 | (addr)->s6_addr[15]))
-#define seg6_hashfn(dst) hash_64(seg6_addrto64(dst), 12)
-
 enum rt6_nud_state {
 	RT6_NUD_FAIL_HARD = -3,
 	RT6_NUD_FAIL_PROBE = -2,
@@ -3240,20 +3237,24 @@ static int __net_init seg6_init(struct net *net)
 {
 	unsigned int i;
 
-	net->ipv6.seg6_hash = kzalloc(4096*sizeof(struct hlist_head), GFP_KERNEL);
+	net->ipv6.seg6_hash = kzalloc(4096 * sizeof(struct hlist_head),
+								  GFP_KERNEL);
 	if (!net->ipv6.seg6_hash)
 		return 1;
 
 	for (i = 0; i < 4096; i++)
 		INIT_HLIST_HEAD(&net->ipv6.seg6_hash[i]);
 
-	net->ipv6.seg6_fib_root = kzalloc(sizeof(struct s6ib_node), GFP_KERNEL);
+	net->ipv6.seg6_fib_root = kzalloc(sizeof(*net->ipv6.seg6_fib_root),
+					  GFP_KERNEL);
 	if (!net->ipv6.seg6_fib_root) {
 		kfree(net->ipv6.seg6_hash);
 		return 1;
 	}
 
-	net->ipv6.seg6_hmac_table = kzalloc(255*sizeof(struct seg6_hmac_info *), GFP_KERNEL);
+	net->ipv6.seg6_hmac_table = kzalloc(255 *
+					    sizeof(*net->ipv6.seg6_hmac_table),
+					    GFP_KERNEL);
 	if (!net->ipv6.seg6_hmac_table) {
 		kfree(net->ipv6.seg6_fib_root);
 		kfree(net->ipv6.seg6_hash);
@@ -3262,7 +3263,9 @@ static int __net_init seg6_init(struct net *net)
 
 	net->ipv6.seg6_bib_head = NULL;
 
-	net->ipv6.seg6_cache_hash = kzalloc(4096*sizeof(struct hlist_head), GFP_KERNEL);
+	net->ipv6.seg6_cache_hash = kzalloc(4096 *
+					    sizeof(*net->ipv6.seg6_cache_hash),
+					    GFP_KERNEL);
 	if (!net->ipv6.seg6_cache_hash) {
 		kfree(net->ipv6.seg6_hmac_table);
 		kfree(net->ipv6.seg6_fib_root);

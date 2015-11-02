@@ -45,12 +45,13 @@ static int get_bit(struct in6_addr *addr, int idx)
 	u8 bit, byte;
 
 	byte = addr->s6_addr[idx >> 3];
-	bit = 1 << (7 - idx%8);
+	bit = 1 << (7 - idx % 8);
 
 	return (byte & bit) != 0;
 }
 
-static int get_next_bit(struct in6_addr *addr, int dst_len, int cur_bit, int val)
+static int get_next_bit(struct in6_addr *addr, int dst_len, int cur_bit,
+			int val)
 {
 	int idx = cur_bit;
 	int bit;
@@ -65,12 +66,14 @@ static int get_next_bit(struct in6_addr *addr, int dst_len, int cur_bit, int val
 	return idx;
 }
 
-struct s6ib_node *seg6_route_lookup(struct s6ib_node *root, struct in6_addr *addr)
+struct s6ib_node *seg6_route_lookup(struct s6ib_node *root,
+				    struct in6_addr *addr)
 {
 	struct s6ib_node *node, *match, *child;
 	int cur_val, i = 0, next_bit, delta;
 
-	match = node = root;
+	node = root;
+	match = node;
 	while (i < 128) {
 		cur_val = get_bit(addr, i);
 		child = node->children[cur_val];
@@ -78,7 +81,7 @@ struct s6ib_node *seg6_route_lookup(struct s6ib_node *root, struct in6_addr *add
 		if (!child)
 			return match;
 
-		next_bit = get_next_bit(addr, 128, i+1, !cur_val);
+		next_bit = get_next_bit(addr, 128, i + 1, !cur_val);
 		delta = next_bit - i;
 
 		if (child->count > delta)
@@ -94,7 +97,8 @@ struct s6ib_node *seg6_route_lookup(struct s6ib_node *root, struct in6_addr *add
 	return match;
 }
 
-struct s6ib_node *seg6_route_insert(struct s6ib_node *root, struct seg6_info *s6info)
+struct s6ib_node *seg6_route_insert(struct s6ib_node *root,
+				    struct seg6_info *s6info)
 {
 	struct s6ib_node *node, *child, *newnode;
 	int cur_bit = 0;
@@ -106,7 +110,7 @@ struct s6ib_node *seg6_route_insert(struct s6ib_node *root, struct seg6_info *s6
 	node = root;
 	while (cur_bit < plen) {
 		cur_val = get_bit(addr, cur_bit);
-		next_bit = get_next_bit(addr, plen, cur_bit+1, !cur_val);
+		next_bit = get_next_bit(addr, plen, cur_bit + 1, !cur_val);
 
 		if (next_bit > plen)
 			next_bit = plen;
@@ -158,7 +162,9 @@ struct s6ib_node *seg6_route_insert(struct s6ib_node *root, struct seg6_info *s6
 	return node;
 }
 
-static struct s6ib_node *seg6_route_lookup_exact(struct s6ib_node *root, struct in6_addr *addr, int plen)
+static struct s6ib_node *seg6_route_lookup_exact(struct s6ib_node *root,
+						 struct in6_addr *addr,
+						 int plen)
 {
 	struct s6ib_node *node, *child;
 	int cur_val, i = 0, next_bit, delta;
@@ -171,7 +177,7 @@ static struct s6ib_node *seg6_route_lookup_exact(struct s6ib_node *root, struct 
 		if (!child)
 			return NULL;
 
-		next_bit = get_next_bit(addr, plen, i+1, !cur_val);
+		next_bit = get_next_bit(addr, plen, i + 1, !cur_val);
 		if (next_bit > plen)
 			next_bit = plen;
 
@@ -180,7 +186,9 @@ static struct s6ib_node *seg6_route_lookup_exact(struct s6ib_node *root, struct 
 		if (child->count > delta)
 			return NULL;
 
-		if (child->s6info && memcmp(&child->s6info->dst, addr, 16) == 0 && child->s6info->dst_len == plen)
+		if (child->s6info &&
+		    memcmp(&child->s6info->dst, addr, 16) == 0 &&
+		    child->s6info->dst_len == plen)
 			return child;
 
 		i += child->count;

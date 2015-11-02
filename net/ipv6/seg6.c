@@ -46,12 +46,13 @@
 #include <net/seg6_hmac.h>
 #include <linux/random.h>
 
-int seg6_srh_reversal = 0;
-int seg6_hmac_strict_key = 0;
-int seg6_enable_caching = 0;
+int seg6_srh_reversal;
+int seg6_hmac_strict_key;
+int seg6_enable_caching;
 int seg6_enabled = 1;
 
-static inline void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src, int size)
+static void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src,
+				  int size)
 {
 	int i;
 
@@ -75,7 +76,7 @@ int seg6_bib_insert(struct net *net, struct seg6_bib_node *bib)
 {
 	struct seg6_bib_node *tmp;
 
-	if (net->ipv6.seg6_bib_head == NULL) {
+	if (!net->ipv6.seg6_bib_head) {
 		net->ipv6.seg6_bib_head = bib;
 		return 0;
 	}
@@ -84,7 +85,7 @@ int seg6_bib_insert(struct net *net, struct seg6_bib_node *bib)
 		if (memcmp(&tmp->segment, &bib->segment, 16) == 0)
 			return -EEXIST;
 
-		if (tmp->next == NULL) {
+		if (!tmp->next) {
 			tmp->next = bib;
 			break;
 		}
@@ -111,11 +112,14 @@ int seg6_bib_remove(struct net *net, struct in6_addr *addr)
 	return 0;
 }
 
-static struct seg6_cache *seg6_lookup_cache(struct net *net, struct in6_addr *dst)
+static struct seg6_cache *seg6_lookup_cache(struct net *net,
+					    struct in6_addr *dst)
 {
 	struct seg6_cache *cache;
 
-	hlist_for_each_entry_rcu(cache, &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)], cache_chain) {
+	hlist_for_each_entry_rcu(cache,
+				 &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)],
+				 cache_chain) {
 		if (memcmp(cache->dst.s6_addr, dst->s6_addr, 16) == 0) {
 			atomic_inc(&cache->ref);
 			return cache;
@@ -125,7 +129,8 @@ static struct seg6_cache *seg6_lookup_cache(struct net *net, struct in6_addr *ds
 	return NULL;
 }
 
-static void seg6_insert_cache(struct net *net, struct in6_addr *dst, struct seg6_info *info)
+static void seg6_insert_cache(struct net *net, struct in6_addr *dst,
+			      struct seg6_info *info)
 {
 	struct seg6_cache *cache;
 
@@ -135,7 +140,8 @@ static void seg6_insert_cache(struct net *net, struct in6_addr *dst, struct seg6
 	atomic_set(&cache->ref, 1);
 	atomic_inc(&info->ref);
 
-	hlist_add_head_rcu(&cache->cache_chain, &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)]);
+	hlist_add_head_rcu(&cache->cache_chain,
+			   &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)]);
 }
 
 static void __seg6_remove_cache(struct net *net, struct seg6_cache *cache)
@@ -158,15 +164,17 @@ static void seg6_remove_cache(struct net *net, struct in6_addr *dst)
 
 void seg6_flush_cache(struct net *net)
 {
-    struct seg6_cache *cache;
-    struct hlist_node *itmp;
-    int i;
+	struct seg6_cache *cache;
+	struct hlist_node *itmp;
+	int i;
 
-    for (i = 0; i < 4096; i++) {
-        hlist_for_each_entry_safe(cache, itmp, &net->ipv6.seg6_cache_hash[i], cache_chain) {
+	for (i = 0; i < 4096; i++) {
+		hlist_for_each_entry_safe(cache, itmp,
+					  &net->ipv6.seg6_cache_hash[i],
+					  cache_chain) {
 			__seg6_remove_cache(net, cache);
-        }
-    }
+		}
+	}
 }
 
 struct seg6_info *seg6_segment_lookup(struct net *net, struct in6_addr *dst)
@@ -196,11 +204,11 @@ struct seg6_list *seg6_pick_segments(struct seg6_info *info)
 
 	/* should never happen */
 	if (info->list_size == 0) {
-		printk(KERN_DEBUG "SR-IPv6: warning: info->list_size == 0 in seg6_pick_segments() for dst %pI6\n", &info->dst);
+		pr_debug("SR-IPv6: warning: info->list_size == 0 in seg6_pick_segments() for dst %pI6\n", &info->dst);
 		return NULL;
 	}
 
-	id = prandom_u32()%info->list_size;
+	id = prandom_u32() % info->list_size;
 	list_node = info->list;
 	for (i = 0; i < id; i++)
 		list_node = list_node->next;
@@ -209,37 +217,45 @@ struct seg6_list *seg6_pick_segments(struct seg6_info *info)
 }
 EXPORT_SYMBOL(seg6_pick_segments);
 
-void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse)
+void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to,
+		      int reverse)
 {
 	int seg_size;
 
-	hdr_to->hdrlen = hdr_from->first_segment*2 + 4;
+	hdr_to->hdrlen = hdr_from->first_segment * 2 + 4;
 	hdr_to->type = IPV6_SRCRT_TYPE_4;
 	hdr_to->first_segment = hdr_from->first_segment;
 
 	seg_size = SEG6_SRH_SEGSIZE(hdr_from);
 	if (reverse)
-		copy_segments_reverse(hdr_to->segments + 1, hdr_from->segments + 1, seg_size - 1);
+		copy_segments_reverse(hdr_to->segments + 1,
+				      hdr_from->segments + 1,
+				      seg_size - 1);
 	else
-		memcpy(hdr_to->segments + 1, hdr_from->segments + 1, (seg_size - 1)*sizeof(struct in6_addr));
+		memcpy(hdr_to->segments + 1, hdr_from->segments + 1,
+		       (seg_size - 1) * sizeof(struct in6_addr));
 
 	memset(hdr_to->segments, 0x42, sizeof(struct in6_addr));
 }
 
-static int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_list *segments, struct seg6_cache *s6cache)
+static int __seg6_process_skb(struct net *net, struct sk_buff *skb,
+			      struct seg6_list *segments,
+			      struct seg6_cache *s6cache)
 {
 	struct ipv6hdr *hdr, *inner_hdr;
 	int tot_len;
 	struct ipv6_sr_hdr *srh;
 
-	tot_len = SEG6_HDR_BYTELEN(segments) + sizeof(struct ipv6hdr);
+	tot_len = seg6_hdr_bytelen(segments) + sizeof(struct ipv6hdr);
 
 	if (pskb_expand_head(skb, tot_len, 0, GFP_ATOMIC)) {
-		printk(KERN_DEBUG "SR6: seg6_process_skb: cannot expand head\n");
+		pr_debug("SR6: seg6_process_skb: cannot expand head\n");
 		return -1;
 	}
 
-	/* save pointer to original IPv6 header that will become the inner IPv6 header */
+	/* save pointer to original IPv6 header that
+	 * will become the inner IPv6 header
+	 */
 	inner_hdr = ipv6_hdr(skb);
 
 	/* make room for outer header + SRH */
@@ -247,11 +263,11 @@ static int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_
 	skb_reset_network_header(skb);
 	hdr = ipv6_hdr(skb);
 
-	/*
-	 * Initialize outer header with same tclass, flowlabel & hop limit.
+	/* Initialize outer header with same tclass, flowlabel & hop limit.
 	 * Perhaps this should be made configurable ?
 	 */
-	ip6_flow_hdr(hdr, ip6_tclass(ip6_flowinfo(inner_hdr)), ip6_flowlabel(inner_hdr));
+	ip6_flow_hdr(hdr, ip6_tclass(ip6_flowinfo(inner_hdr)),
+		     ip6_flowlabel(inner_hdr));
 	hdr->hop_limit = inner_hdr->hop_limit;
 	hdr->nexthdr = NEXTHDR_ROUTING;
 
@@ -268,35 +284,44 @@ static int __seg6_process_skb(struct net *net, struct sk_buff *skb, struct seg6_
 
 	sr_set_flags(srh, segments->flags & SR6_FLAGMASK);
 
+	if (seg6_pol_size(segments) == 0)
+		goto populate_segs;
+
 	/* populate policies */
-	if (seg6_pol_size(segments) > 0) {
-		if (SEG6_POL_PRESENT(segments, 0)) {
-			sr_set_flag_p1(srh, SEG6_POL_FLAGS(segments, 0));
-			memcpy(SEG6_SRH_POL_ENTRY(srh, 0), SEG6_POL_ENTRY(segments, 0), sizeof(struct in6_addr));
-		} else
-			goto populate_segs;
+	if (SEG6_POL_PRESENT(segments, 0)) {
+		sr_set_flag_p1(srh, SEG6_POL_FLAGS(segments, 0));
+		memcpy(SEG6_SRH_POL_ENTRY(srh, 0), SEG6_POL_ENTRY(segments, 0),
+		       sizeof(struct in6_addr));
+	} else {
+		goto populate_segs;
+	}
 
-		if (SEG6_POL_PRESENT(segments, 1)) {
-			sr_set_flag_p2(srh, SEG6_POL_FLAGS(segments, 1));
-			memcpy(SEG6_SRH_POL_ENTRY(srh, 1), SEG6_POL_ENTRY(segments, 1), sizeof(struct in6_addr));
-		} else
-			goto populate_segs;
+	if (SEG6_POL_PRESENT(segments, 1)) {
+		sr_set_flag_p2(srh, SEG6_POL_FLAGS(segments, 1));
+		memcpy(SEG6_SRH_POL_ENTRY(srh, 1), SEG6_POL_ENTRY(segments, 1),
+		       sizeof(struct in6_addr));
+	} else {
+		goto populate_segs;
+	}
 
-		if (SEG6_POL_PRESENT(segments, 2)) {
-			sr_set_flag_p3(srh, SEG6_POL_FLAGS(segments, 2));
-			memcpy(SEG6_SRH_POL_ENTRY(srh, 2), SEG6_POL_ENTRY(segments, 2), sizeof(struct in6_addr));
-		} else
-			goto populate_segs;
+	if (SEG6_POL_PRESENT(segments, 2)) {
+		sr_set_flag_p3(srh, SEG6_POL_FLAGS(segments, 2));
+		memcpy(SEG6_SRH_POL_ENTRY(srh, 2), SEG6_POL_ENTRY(segments, 2),
+		       sizeof(struct in6_addr));
+	} else {
+		goto populate_segs;
+	}
 
-		if (SEG6_POL_PRESENT(segments, 3)) {
-			sr_set_flag_p4(srh, SEG6_POL_FLAGS(segments, 3));
-			memcpy(SEG6_SRH_POL_ENTRY(srh, 3), SEG6_POL_ENTRY(segments, 3), sizeof(struct in6_addr));
-		}
+	if (SEG6_POL_PRESENT(segments, 3)) {
+		sr_set_flag_p4(srh, SEG6_POL_FLAGS(segments, 3));
+		memcpy(SEG6_SRH_POL_ENTRY(srh, 3), SEG6_POL_ENTRY(segments, 3),
+		       sizeof(struct in6_addr));
 	}
 
 	/* populate segments */
 populate_segs:
-	copy_segments_reverse(srh->segments, segments->segments, segments->seg_size);
+	copy_segments_reverse(srh->segments, segments->segments,
+			      segments->seg_size);
 
 	if (!(segments->flags & SR6_FLAG_EGRESS_PRESENT))
 		srh->segments[0] = inner_hdr->daddr;
@@ -305,23 +330,30 @@ populate_segs:
 
 	/* set router as source address */
 	if (!s6cache || !s6cache->src_set) {
-		ipv6_dev_get_saddr(net, skb->dev, &hdr->daddr, IPV6_PREFER_SRC_PUBLIC, &hdr->saddr);
+		ipv6_dev_get_saddr(net, skb->dev,
+				   &hdr->daddr,
+				   IPV6_PREFER_SRC_PUBLIC,
+				   &hdr->saddr);
 	}
 
 	if (!s6cache)
 		goto skip_cache;
 
 	if (!s6cache->src_set) {
-		memcpy(&s6cache->self_src, &hdr->saddr, sizeof(struct in6_addr));
+		memcpy(&s6cache->self_src, &hdr->saddr,
+		       sizeof(struct in6_addr));
 		s6cache->src_set = 1;
 	} else {
-		memcpy(&hdr->saddr, &s6cache->self_src, sizeof(struct in6_addr));
+		memcpy(&hdr->saddr, &s6cache->self_src,
+		       sizeof(struct in6_addr));
 	}
 
 skip_cache:
 	hdr->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 
-	/* reset transport header to SRH, needed if packet is locally processed */
+	/* reset transport header to SRH
+	 * needed if packet is locally processed
+	 */
 	skb_set_transport_header(skb, sizeof(struct ipv6hdr));
 
 	if (segments->hmackeyid) {
@@ -336,14 +368,14 @@ skip_cache:
 		sr_set_hmac_key_id(srh, segments->hmackeyid);
 		memset(SEG6_HMAC(srh), 0, 32);
 
-		sr_hmac_sha1(key, keylen, srh, &hdr->saddr, (u32*)SEG6_HMAC(srh));
+		sr_hmac_sha1(key, keylen, srh, &hdr->saddr,
+			     (u32 *)SEG6_HMAC(srh));
 	}
 
 	return 0;
 }
 
-/*
- * Push SRH in matching forwarded packets
+ /* Push SRH in matching forwarded packets
  */
 int seg6_process_skb(struct net *net, struct sk_buff *skb)
 {
@@ -371,7 +403,8 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 		return 0;
 
 	if (seg6_enable_caching) {
-		if ((seg_cache = seg6_lookup_cache(net, &hdr->daddr)) != NULL) {
+		seg_cache = seg6_lookup_cache(net, &hdr->daddr);
+		if (seg_cache) {
 			/* TODO check expiration */
 			seg_info = seg_cache->info;
 			atomic_inc(&seg_info->ref);
@@ -381,7 +414,7 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 	if (!seg_info)
 		seg_info = seg6_segment_lookup(net, &hdr->daddr);
 
-	if (seg_info == NULL)
+	if (!seg_info)
 		goto out_release;
 
 	if (!seg_cache && seg6_enable_caching)
@@ -410,7 +443,7 @@ void __seg6_flush_segment(struct seg6_info *info)
 {
 	struct seg6_list *list;
 
-	while (info->list != NULL) {
+	while (info->list) {
 		list = info->list->next;
 		kfree(info->list->segments);
 		kfree(info->list);
@@ -424,8 +457,9 @@ static int __seg6_remove_id(struct seg6_info *info, u16 id)
 	struct seg6_list *list, *plist;
 	int found = 0;
 
-	plist = list = info->list;
-	while (list != NULL) {
+	list = info->list;
+	plist = list;
+	while (list) {
 		if (list->id == id) {
 			if (list == info->list)
 				info->list = list->next;
@@ -451,8 +485,11 @@ void seg6_flush_segments(struct net *net)
 	int i;
 
 	for (i = 0; i < 4096; i++) {
-		hlist_for_each_entry_safe(s6info, itmp, &net->ipv6.seg6_hash[i], seg_chain) {
-			seg6_route_delete(net->ipv6.seg6_fib_root, &s6info->dst, s6info->dst_len);
+		hlist_for_each_entry_safe(s6info, itmp, &net->ipv6.seg6_hash[i],
+					  seg_chain) {
+			seg6_route_delete(net->ipv6.seg6_fib_root,
+					  &s6info->dst,
+					  s6info->dst_len);
 			hlist_del_rcu(&s6info->seg_chain);
 			seg6_release_info(s6info);
 		}
@@ -462,14 +499,14 @@ EXPORT_SYMBOL(seg6_flush_segments);
 
 static struct ctl_table seg6_table[] = {
 	{
-		.procname 	= "hmac_key",
-		.data 		= seg6_hmac_key,
+		.procname	= "hmac_key",
+		.data		= seg6_hmac_key,
 		.maxlen		= SEG6_HMAC_MAX_SIZE,
 		.mode		= 0644,
 		.proc_handler	= proc_dostring,
 	},
 	{
-		.procname 	= "srh_reversal",
+		.procname	= "srh_reversal",
 		.data		= &seg6_srh_reversal,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
@@ -532,13 +569,14 @@ enum {
 #define SEG6_ATTR_MAX (__SEG6_ATTR_MAX - 1)
 
 static struct nla_policy seg6_genl_policy[SEG6_ATTR_MAX + 1] = {
-	[SEG6_ATTR_DST] 			= { .type = NLA_BINARY, .len = sizeof(struct in6_addr) },
+	[SEG6_ATTR_DST]				= { .type = NLA_BINARY,
+		.len = sizeof(struct in6_addr) },
 	[SEG6_ATTR_DSTLEN]			= { .type = NLA_S32, },
-	[SEG6_ATTR_SEGLISTID] 		= { .type = NLA_U16, },
-	[SEG6_ATTR_FLAGS] 			= { .type = NLA_U32, },
-	[SEG6_ATTR_HMACKEYID] 		= { .type = NLA_U8, },
-	[SEG6_ATTR_SEGMENTS] 		= { .type = NLA_BINARY, },
-	[SEG6_ATTR_SEGLEN] 			= { .type = NLA_S32, },
+	[SEG6_ATTR_SEGLISTID]		= { .type = NLA_U16, },
+	[SEG6_ATTR_FLAGS]			= { .type = NLA_U32, },
+	[SEG6_ATTR_HMACKEYID]		= { .type = NLA_U8, },
+	[SEG6_ATTR_SEGMENTS]		= { .type = NLA_BINARY, },
+	[SEG6_ATTR_SEGLEN]			= { .type = NLA_S32, },
 	[SEG6_ATTR_SEGINFO]			= { .type = NLA_NESTED, },
 	[SEG6_ATTR_SECRET]			= { .type = NLA_BINARY, },
 	[SEG6_ATTR_SECRETLEN]		= { .type = NLA_U8, },
@@ -582,8 +620,7 @@ enum {
 
 #define SEG6_CMD_MAX (__SEG6_CMD_MAX - 1)
 
-/*
- * @skb's SRH has undergone segleft dec
+ /* @skb's SRH has undergone segleft dec
  *
  * We need to change DA to orig DA. When packet will be received in PACKET_OUT,
  * then we just need to overwrite DA to active seg.
@@ -614,7 +651,8 @@ int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data)
 
 	skb_push(skb2, skb2->data - skb_network_header(skb2));
 
-	msg = netlink_alloc_skb(dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE), portid, GFP_ATOMIC);
+	msg = netlink_alloc_skb(dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE),
+				portid, GFP_ATOMIC);
 	if (!msg)
 		goto err;
 
@@ -622,7 +660,8 @@ int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data)
 	if (!hdr)
 		goto err_free;
 
-	if (nla_put(msg, SEG6_ATTR_PACKET_DATA, skb2->len, skb_network_header(skb2)))
+	if (nla_put(msg, SEG6_ATTR_PACKET_DATA, skb2->len,
+		    skb_network_header(skb2)))
 		goto nla_put_failure;
 
 	if (nla_put_s32(msg, SEG6_ATTR_PACKET_LEN, skb2->len))
@@ -656,7 +695,8 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 	struct dst_entry *dst;
 	struct flowi6 fl6;
 
-	if (!info->attrs[SEG6_ATTR_PACKET_DATA] || !info->attrs[SEG6_ATTR_PACKET_LEN])
+	if (!info->attrs[SEG6_ATTR_PACKET_DATA] ||
+	    !info->attrs[SEG6_ATTR_PACKET_LEN])
 		return -EINVAL;
 
 	len = nla_get_s32(info->attrs[SEG6_ATTR_PACKET_LEN]);
@@ -687,7 +727,7 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 	memset(&fl6, 0, sizeof(fl6));
 	fl6.daddr = hdr->daddr;
 	fl6.flowlabel = ((hdr->flow_lbl[0] & 0xF) << 16) |
-						(hdr->flow_lbl[1] << 8) | hdr->flow_lbl[2];
+			 (hdr->flow_lbl[1] << 8) | hdr->flow_lbl[2];
 	dst = ip6_route_output(net, NULL, &fl6);
 	if (dst->error) {
 		dst_release(dst);
@@ -716,24 +756,31 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 	struct seg6_policy *pol_data;
 	int pol_len;
 
-	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_DSTLEN] || !info->attrs[SEG6_ATTR_SEGLISTID] ||
-		!info->attrs[SEG6_ATTR_FLAGS] || !info->attrs[SEG6_ATTR_HMACKEYID] || !info->attrs[SEG6_ATTR_SEGMENTS] ||
-		!info->attrs[SEG6_ATTR_SEGLEN] || !info->attrs[SEG6_ATTR_POLICY_DATA] || !info->attrs[SEG6_ATTR_POLICY_LEN])
+	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_DSTLEN] ||
+	    !info->attrs[SEG6_ATTR_SEGLISTID] ||
+	    !info->attrs[SEG6_ATTR_FLAGS] ||
+	    !info->attrs[SEG6_ATTR_HMACKEYID] ||
+	    !info->attrs[SEG6_ATTR_SEGMENTS] ||
+	    !info->attrs[SEG6_ATTR_SEGLEN] ||
+	    !info->attrs[SEG6_ATTR_POLICY_DATA] ||
+	    !info->attrs[SEG6_ATTR_POLICY_LEN])
 		return -EINVAL;
 
-	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
+	dst = nla_data(info->attrs[SEG6_ATTR_DST]);
 	dst_len = nla_get_s32(info->attrs[SEG6_ATTR_DSTLEN]);
 	seglist_id = nla_get_u16(info->attrs[SEG6_ATTR_SEGLISTID]);
 	seg_len = nla_get_s32(info->attrs[SEG6_ATTR_SEGLEN]);
 	flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
-	pol_data = (struct seg6_policy *)nla_data(info->attrs[SEG6_ATTR_POLICY_DATA]);
+	pol_data = nla_data(info->attrs[SEG6_ATTR_POLICY_DATA]);
 	pol_len = nla_get_s32(info->attrs[SEG6_ATTR_POLICY_LEN]);
 
-	if (pol_len > 4*sizeof(struct seg6_policy))
+	if (pol_len > 4 * sizeof(struct seg6_policy))
 		return -EINVAL;
 
-	hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[seg6_hashfn(dst)], seg_chain) {
-		if (memcmp(s6info->dst.s6_addr, dst->s6_addr, 16) == 0 && s6info->dst_len == dst_len) {
+	hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[seg6_hashfn(dst)],
+				 seg_chain) {
+		if (memcmp(s6info->dst.s6_addr, dst->s6_addr, 16) == 0 &&
+		    s6info->dst_len == dst_len) {
 			found = 1;
 			break;
 		}
@@ -753,7 +800,8 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 			kfree(s6info);
 			return PTR_ERR(node);
 		}
-		hlist_add_head_rcu(&s6info->seg_chain, &net->ipv6.seg6_hash[seg6_hashfn(dst)]);
+		hlist_add_head_rcu(&s6info->seg_chain,
+				   &net->ipv6.seg6_hash[seg6_hashfn(dst)]);
 	} else {
 		for (tmp = s6info->list; tmp; tmp = tmp->next) {
 			if (tmp->id == seglist_id)
@@ -761,7 +809,7 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 		}
 	}
 
-	tmp = kzalloc(sizeof(struct seg6_list), GFP_KERNEL);
+	tmp = kzalloc(sizeof(*tmp), GFP_KERNEL);
 	if (!tmp)
 		return -ENOMEM;
 
@@ -769,13 +817,14 @@ static int seg6_genl_addseg(struct sk_buff *skb, struct genl_info *info)
 	tmp->seg_size = seg_len;
 	tmp->flags = flags;
 	tmp->hmackeyid = nla_get_u8(info->attrs[SEG6_ATTR_HMACKEYID]);
-	tmp->segments = kmalloc(seg_len*sizeof(struct in6_addr), GFP_KERNEL);
+	tmp->segments = kmalloc(seg_len * sizeof(struct in6_addr), GFP_KERNEL);
 	if (!tmp->segments) {
 		kfree(tmp);
 		return -ENOMEM;
 	}
 
-	memcpy(tmp->segments, nla_data(info->attrs[SEG6_ATTR_SEGMENTS]), seg_len*sizeof(struct in6_addr));
+	memcpy(tmp->segments, nla_data(info->attrs[SEG6_ATTR_SEGMENTS]),
+	       seg_len * sizeof(struct in6_addr));
 
 	memcpy(tmp->pol, pol_data, pol_len);
 	if (!seg6_pol_valid(tmp)) {
@@ -800,15 +849,18 @@ static int seg6_genl_delseg(struct sk_buff *skb, struct genl_info *info)
 	u16 seglist_id;
 	struct net *net = genl_info_net(info);
 
-	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_DSTLEN] || !info->attrs[SEG6_ATTR_SEGLISTID])
+	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_DSTLEN] ||
+	    !info->attrs[SEG6_ATTR_SEGLISTID])
 		return -EINVAL;
 
 	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
 	dst_len = nla_get_s32(info->attrs[SEG6_ATTR_DSTLEN]);
 	seglist_id = nla_get_u16(info->attrs[SEG6_ATTR_SEGLISTID]);
 
-	hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[seg6_hashfn(dst)], seg_chain) {
-		if (memcmp(s6info->dst.s6_addr, dst->s6_addr, 16) == 0 && s6info->dst_len == dst_len) {
+	hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[seg6_hashfn(dst)],
+				 seg_chain) {
+		if (memcmp(s6info->dst.s6_addr, dst->s6_addr, 16) == 0 &&
+		    s6info->dst_len == dst_len) {
 			found = 1;
 			break;
 		}
@@ -842,7 +894,9 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	u8 slen;
 	struct seg6_hmac_info *hinfo;
 
-	if (!info->attrs[SEG6_ATTR_HMACKEYID] || !info->attrs[SEG6_ATTR_SECRETLEN] || !info->attrs[SEG6_ATTR_ALGID])
+	if (!info->attrs[SEG6_ATTR_HMACKEYID] ||
+	    !info->attrs[SEG6_ATTR_SECRETLEN] ||
+	    !info->attrs[SEG6_ATTR_ALGID])
 		return -EINVAL;
 
 	hmackeyid = nla_get_u8(info->attrs[SEG6_ATTR_HMACKEYID]);
@@ -892,67 +946,63 @@ static int seg6_genl_flush(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 }
 
-static int seg6_genl_dump(struct sk_buff *skb, struct genl_info *info)
+static int __seg6_genl_dump_element(struct genl_info *info,
+				    struct seg6_info *s6info,
+				    struct seg6_list *list);
 {
-	struct seg6_info *s6info;
-	struct seg6_list *list;
-	int i;
-	struct sk_buff *msg;
-	void *hdr;
+	void *hdr
 	struct nlattr *nla;
-	struct net *net = genl_info_net(info);
+	struct sk_buff *msg;
 
-	for (i = 0; i < 4096; i++) {
-		hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[i], seg_chain) {
-			list = s6info->list;
-			while (list != NULL) {
-				msg = netlink_alloc_skb(info->dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE), info->snd_portid, GFP_KERNEL);
-				if (!msg)
-					return -ENOMEM;
+	msg = netlink_alloc_skb(info->dst_sk,
+				nlmsg_total_size(NLMSG_DEFAULT_SIZE),
+				info->snd_portid, GFP_KERNEL);
 
-				hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMP);
-				if (!hdr)
-					goto free_msg;
+	if (!msg)
+		return -ENOMEM;
 
-				nla = nla_nest_start(msg, SEG6_ATTR_SEGINFO);
-				if (!nla)
-					goto nla_put_failure;
+	hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMP);
+	if (!hdr)
+		goto free_msg;
 
-				if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), &s6info->dst))
-					goto nla_put_failure;
+	nla = nla_nest_start(msg, SEG6_ATTR_SEGINFO);
+	if (!nla)
+		goto nla_put_failure;
 
-				if (nla_put_s32(msg, SEG6_ATTR_DSTLEN, s6info->dst_len))
-					goto nla_put_failure;
+	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), &s6info->dst))
+		goto nla_put_failure;
 
-				if (nla_put_u16(msg, SEG6_ATTR_SEGLISTID, list->id))
-					goto nla_put_failure;
+	if (nla_put_s32(msg, SEG6_ATTR_DSTLEN, s6info->dst_len))
+		goto nla_put_failure;
 
-				if (nla_put_s32(msg, SEG6_ATTR_SEGLEN, list->seg_size))
-					goto nla_put_failure;
+	if (nla_put_u16(msg, SEG6_ATTR_SEGLISTID, list->id))
+		goto nla_put_failure;
 
-				if (nla_put_u32(msg, SEG6_ATTR_FLAGS, list->flags))
-					goto nla_put_failure;
+	if (nla_put_s32(msg, SEG6_ATTR_SEGLEN, list->seg_size))
+		goto nla_put_failure;
 
-				if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, list->hmackeyid))
-					goto nla_put_failure;
+	if (nla_put_u32(msg, SEG6_ATTR_FLAGS, list->flags))
+		goto nla_put_failure;
 
-				if (nla_put(msg, SEG6_ATTR_SEGMENTS, list->seg_size*sizeof(struct in6_addr), list->segments))
-					goto nla_put_failure;
+	if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, list->hmackeyid))
+		goto nla_put_failure;
 
-				if (nla_put_s32(msg, SEG6_ATTR_POLICY_LEN, seg6_pol_size(list)*sizeof(struct seg6_policy)))
-					goto nla_put_failure;
+	if (nla_put(msg, SEG6_ATTR_SEGMENTS,
+		    list->seg_size * sizeof(struct in6_addr), list->segments))
+		goto nla_put_failure;
 
-				if (nla_put(msg, SEG6_ATTR_POLICY_DATA, seg6_pol_size(list)*sizeof(struct seg6_policy), list->pol))
-					goto nla_put_failure;
+	if (nla_put_s32(msg, SEG6_ATTR_POLICY_LEN,
+			seg6_pol_size(list) * sizeof(struct seg6_policy)))
+		goto nla_put_failure;
 
-				nla_nest_end(msg, nla);
-				genlmsg_end(msg, hdr);
-				genlmsg_reply(msg, info);
+	if (nla_put(msg, SEG6_ATTR_POLICY_DATA,
+		    seg6_pol_size(list) * sizeof(struct seg6_policy),
+		    list->pol))
+		goto nla_put_failure;
 
-				list = list->next;
-			}
-		}
-	}
+	nla_nest_end(msg, nla);
+	genlmsg_end(msg, hdr);
+	genlmsg_reply(msg, info);
 
 	return 0;
 
@@ -961,6 +1011,30 @@ nla_put_failure:
 free_msg:
 	nlmsg_free(msg);
 	return -ENOMEM;
+}
+
+static int seg6_genl_dump(struct sk_buff *skb, struct genl_info *info)
+{
+	struct seg6_info *s6info;
+	struct seg6_list *list;
+	int i, err;
+	struct net *net = genl_info_net(info);
+
+	for (i = 0; i < 4096; i++) {
+		hlist_for_each_entry_rcu(s6info, &net->ipv6.seg6_hash[i],
+					 seg_chain) {
+			list = s6info->list;
+			while (list) {
+				err = __seg6_genl_dump_element(info, s6info,
+							       list);
+				if (err)
+					return err;
+				list = list->next;
+			}
+		}
+	}
+
+	return 0;
 }
 
 static int seg6_genl_dumphmac(struct sk_buff *skb, struct genl_info *info)
@@ -974,14 +1048,17 @@ static int seg6_genl_dumphmac(struct sk_buff *skb, struct genl_info *info)
 
 	for (i = 0; i < 255; i++) {
 		hinfo = net->ipv6.seg6_hmac_table[i];
-		if (hinfo == NULL)
+		if (!hinfo)
 			continue;
 
-		msg = netlink_alloc_skb(info->dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE), info->snd_portid, GFP_KERNEL);
+		msg = netlink_alloc_skb(info->dst_sk,
+					nlmsg_total_size(NLMSG_DEFAULT_SIZE),
+					info->snd_portid, GFP_KERNEL);
 		if (!msg)
 			return -ENOMEM;
 
-		hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMPHMAC);
+		hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0,
+				  SEG6_CMD_DUMPHMAC);
 		if (!hdr)
 			goto free_msg;
 
@@ -1028,7 +1105,8 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
 	op = nla_get_u8(info->attrs[SEG6_ATTR_BIND_OP]);
 
-	if (!info->attrs[SEG6_ATTR_BIND_DATA] || !info->attrs[SEG6_ATTR_BIND_DATALEN])
+	if (!info->attrs[SEG6_ATTR_BIND_DATA] ||
+	    !info->attrs[SEG6_ATTR_BIND_DATALEN])
 		return -EINVAL;
 
 	bib = kzalloc(sizeof(*bib), GFP_KERNEL);
@@ -1041,13 +1119,14 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 		bib->flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
 
 	if (op == SEG6_BIND_SERVICE) {
-		bib->data = kzalloc(sizeof(u32)+sizeof(struct sock *), GFP_KERNEL);
+		bib->data = kzalloc(sizeof(u32) + sizeof(struct sock *),
+				    GFP_KERNEL);
 		if (!bib->data) {
 			kfree(bib);
 			return -ENOMEM;
 		}
 		*(u32 *)bib->data = info->snd_portid;
-		bib->datalen = sizeof(u32)+sizeof(struct sock *);
+		bib->datalen = sizeof(u32) + sizeof(struct sock *);
 		*(struct sock **)(bib->data + sizeof(u32)) = info->dst_sk;
 	} else {
 		datalen = nla_get_s32(info->attrs[SEG6_ATTR_BIND_DATALEN]);
@@ -1057,7 +1136,8 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 			return -ENOMEM;
 		}
 		bib->datalen = datalen;
-		memcpy(bib->data, nla_data(info->attrs[SEG6_ATTR_BIND_DATA]), datalen);
+		memcpy(bib->data, nla_data(info->attrs[SEG6_ATTR_BIND_DATA]),
+		       datalen);
 	}
 
 	memcpy(&bib->segment, dst, 16);
@@ -1101,43 +1181,42 @@ static int seg6_genl_flushbind(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 }
 
-static int seg6_genl_dumpbind(struct sk_buff *skb, struct genl_info *info)
+static int __seg6_genl_dumpbind_element(struct genl_info *info,
+					struct seg6_bib_node *bib)
 {
 	struct sk_buff *msg;
 	struct nlattr *nla;
-	struct net *net = genl_info_net(info);
 	void *hdr;
-	struct seg6_bib_node *bib;
 
-	for (bib = net->ipv6.seg6_bib_head; bib; bib = bib->next) {
-		msg = netlink_alloc_skb(info->dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE), info->snd_portid, GFP_KERNEL);
-		if (!msg)
-			return -ENOMEM;
+	msg = netlink_alloc_skb(info->dst_sk,
+				nlmsg_total_size(NLMSG_DEFAULT_SIZE),
+				info->snd_portid, GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
 
-		hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMPBIND);
-		if (!hdr)
-			goto free_msg;
+	hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMPBIND);
+	if (!hdr)
+		goto free_msg;
 
-		nla = nla_nest_start(msg, SEG6_ATTR_BINDINFO);
-		if (!nla)
-			goto nla_put_failure;
+	nla = nla_nest_start(msg, SEG6_ATTR_BINDINFO);
+	if (!nla)
+		goto nla_put_failure;
 
-		if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), &bib->segment))
-			goto nla_put_failure;
+	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), &bib->segment))
+		goto nla_put_failure;
 
-		if (nla_put(msg, SEG6_ATTR_BIND_DATA, bib->datalen, bib->data))
-			goto nla_put_failure;
+	if (nla_put(msg, SEG6_ATTR_BIND_DATA, bib->datalen, bib->data))
+		goto nla_put_failure;
 
-		if (nla_put_s32(msg, SEG6_ATTR_BIND_DATALEN, bib->datalen))
-			goto nla_put_failure;
+	if (nla_put_s32(msg, SEG6_ATTR_BIND_DATALEN, bib->datalen))
+		goto nla_put_failure;
 
-		if (nla_put_u8(msg, SEG6_ATTR_BIND_OP, bib->op))
-			goto nla_put_failure;
+	if (nla_put_u8(msg, SEG6_ATTR_BIND_OP, bib->op))
+		goto nla_put_failure;
 
-		nla_nest_end(msg, nla);
-		genlmsg_end(msg, hdr);
-		genlmsg_reply(msg, info);
-	}
+	nla_nest_end(msg, nla);
+	genlmsg_end(msg, hdr);
+	genlmsg_reply(msg, info);
 
 	return 0;
 
@@ -1148,24 +1227,39 @@ free_msg:
 	return -ENOMEM;
 }
 
+static int seg6_genl_dumpbind(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	struct seg6_bib_node *bib;
+	int err;
+
+	for (bib = net->ipv6.seg6_bib_head; bib; bib = bib->next) {
+		err = __seg6_genl_dumpbind_element(info, bib);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 static struct genl_ops seg6_genl_ops[] = {
 	{
-		.cmd 	= SEG6_CMD_ADDSEG,
-		.doit 	= seg6_genl_addseg,
-		.policy = seg6_genl_policy,
-		.flags 	= GENL_ADMIN_PERM,
+		.cmd	= SEG6_CMD_ADDSEG,
+		.doit	= seg6_genl_addseg,
+		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
 	},
 	{
-		.cmd 	= SEG6_CMD_DELSEG,
-		.doit 	= seg6_genl_delseg,
+		.cmd	= SEG6_CMD_DELSEG,
+		.doit	= seg6_genl_delseg,
 		.policy	= seg6_genl_policy,
-		.flags 	= GENL_ADMIN_PERM,
+		.flags	= GENL_ADMIN_PERM,
 	},
 	{
 		.cmd	= SEG6_CMD_FLUSH,
-		.doit 	= seg6_genl_flush,
+		.doit	= seg6_genl_flush,
 		.policy	= seg6_genl_policy,
-		.flags 	= GENL_ADMIN_PERM,
+		.flags	= GENL_ADMIN_PERM,
 	},
 	{
 		.cmd	= SEG6_CMD_DUMP,
@@ -1176,20 +1270,20 @@ static struct genl_ops seg6_genl_ops[] = {
 	{
 		.cmd	= SEG6_CMD_SETHMAC,
 		.doit	= seg6_genl_sethmac,
-		.policy = seg6_genl_policy,
+		.policy	= seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},
 	{
-		.cmd 	= SEG6_CMD_DUMPHMAC,
+		.cmd	= SEG6_CMD_DUMPHMAC,
 		.doit	= seg6_genl_dumphmac,
 		.policy	= seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},
 	{
-		.cmd 	= SEG6_CMD_ADDBIND,
+		.cmd	= SEG6_CMD_ADDBIND,
 		.doit	= seg6_genl_addbind,
-		.policy = seg6_genl_policy,
-		.flags 	= GENL_ADMIN_PERM,
+		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
 	},
 	{
 		.cmd	= SEG6_CMD_DELBIND,
@@ -1212,7 +1306,7 @@ static struct genl_ops seg6_genl_ops[] = {
 	{
 		.cmd	= SEG6_CMD_PACKET_OUT,
 		.doit	= seg6_genl_packet_out,
-		.policy = seg6_genl_policy,
+		.policy	= seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},
 };

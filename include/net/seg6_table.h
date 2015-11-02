@@ -32,8 +32,10 @@ struct s6ib_node {
 	u8 count;
 };
 
-struct s6ib_node *seg6_route_lookup(struct s6ib_node *root, struct in6_addr *addr);
-struct s6ib_node *seg6_route_insert(struct s6ib_node *root, struct seg6_info *s6info);
+struct s6ib_node *seg6_route_lookup(struct s6ib_node *root,
+			struct in6_addr *addr);
+struct s6ib_node *seg6_route_insert(struct s6ib_node *root,
+			struct seg6_info *s6info);
 int seg6_route_delete(struct s6ib_node *root, struct in6_addr *addr, int plen);
 
 #endif

@@ -310,7 +310,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
 	if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr) ||
-		skb->pkt_type != PACKET_HOST) {
+	    skb->pkt_type != PACKET_HOST) {
 		IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
 				 IPSTATS_MIB_INADDRERRORS);
 		kfree_skb(skb);
@@ -323,21 +323,16 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	hmac_key_id = sr_get_hmac_key_id(hdr);
 
 	if (idev->cnf.seg6_require_hmac > 0 && hmac_key_id == 0) {
-		printk(KERN_DEBUG "SR-IPv6: require_hmac is set and hmac is not present\n");
+		pr_debug("SR-IPv6: require_hmac is set and hmac is not present\n");
 		kfree_skb(skb);
 		return -1;
 	}
 
 	if (idev->cnf.seg6_require_hmac >= 0 && hmac_key_id != 0) {
-		/*
-		 * segments size (in 8-byte counts) = last_segment*2 + 2 (i.e. end of last segment entry)
-		 * size with segments + hmac: last_segment*2 + 2 + 4 (i.e. previous + first segment + hmac field)
-		 * [seg_2][...][seg_n][seg_1][hmac]
-		 */
 		char *key;
 		int keylen;
 
-		if (hdr->hdrlen < hdr->first_segment*2 + 2 + 4) {
+		if (hdr->hdrlen < hdr->first_segment * 2 + 2 + 4) {
 			kfree_skb(skb);
 			return -1;
 		}
@@ -345,7 +340,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		hinfo = net->ipv6.seg6_hmac_table[hmac_key_id];
 
 		if (!hinfo && seg6_hmac_strict_key) {
-			printk(KERN_DEBUG "SR-IPv6: hmac_strict_key is set and no key found for keyid 0x%x\n", hmac_key_id);
+			pr_debug("SR-IPv6: hmac_strict_key is set and no key found for keyid 0x%x\n", hmac_key_id);
 			kfree_skb(skb);
 			return -1;
 		}
@@ -355,15 +350,16 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 
 		memset(hmac_output, 0, 20);
 
-		if (sr_hmac_sha1(key, keylen, hdr, &ipv6_hdr(skb)->saddr, hmac_output)) {
+		if (sr_hmac_sha1(key, keylen, hdr, &ipv6_hdr(skb)->saddr,
+				 hmac_output)) {
 			kfree_skb(skb);
 			return -1;
 		}
 
-		hmac_input = (u8*)SEG6_HMAC(hdr);
+		hmac_input = (u8 *)SEG6_HMAC(hdr);
 
 		if (memcmp(hmac_output, hmac_input, 20) != 0) {
-			printk(KERN_DEBUG "SR-IPv6: HMAC comparison failed, dropping packet\n");
+			pr_debug("SR-IPv6: HMAC comparison failed, dropping packet\n");
 			kfree_skb(skb);
 			return -1;
 		}
@@ -373,7 +369,8 @@ looped_back:
 	last_addr = hdr->segments;
 
 	if (hdr->segments_left > 0) {
-		if (hdr->segments_left == 1 && sr_get_flags(hdr) & SR6_FLAG_CLEANUP)
+		if (hdr->segments_left == 1 &&
+		    sr_get_flags(hdr) & SR6_FLAG_CLEANUP)
 			cleanup = 1;
 	} else {
 		if (hdr->nexthdr == NEXTHDR_IPV6) {
@@ -381,7 +378,7 @@ looped_back:
 				skb->ip_summed = CHECKSUM_NONE;
 
 			if (!pskb_pull(skb, (hdr->hdrlen + 1) << 3)) {
-				printk(KERN_DEBUG "SR-IPv6: pskb_pull failed for srh decap\n");
+				pr_debug("SR-IPv6: pskb_pull failed for srh decap\n");
 				kfree_skb(skb);
 				return -1;
 			}
@@ -393,7 +390,8 @@ looped_back:
 			return -1;
 		}
 
-		opt->lastopt = opt->srcrt = skb_network_header_len(skb);
+		opt->srcrt = skb_network_header_len(skb);
+		opt->lastopt = opt->srcrt;
 		skb->transport_header += (hdr->hdrlen + 1) << 3;
 		opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
 
@@ -410,7 +408,8 @@ looped_back:
 	addr = hdr->segments + hdr->segments_left;
 
 	/* check if active segment is a Binding-SID */
-	if ((bib_node = seg6_bib_lookup(net, active_addr))) {
+	bib_node = seg6_bib_lookup(net, active_addr);
+	if (bib_node) {
 		switch (bib_node->op) {
 		case SEG6_BIND_ROUTE:
 			neigh_rt = (struct in6_addr *)bib_node->data;
@@ -418,6 +417,7 @@ looped_back:
 		case SEG6_BIND_SERVICE:
 		{
 			int rc;
+
 			rc = seg6_nl_packet_in(net, skb, bib_node->data);
 			if (rc < 0 && rc != -EAGAIN) {
 				seg6_bib_remove(net, active_addr);
@@ -445,12 +445,14 @@ looped_back:
 		srhlen = (hdr->hdrlen + 1) << 3;
 
 		nh = hdr->nexthdr;
-		/* we need to move data from top to bottom to avoid nonlinear skb issues with TSO/GSO */
-		memmove(skb_network_header(skb) + srhlen, skb_network_header(skb), (unsigned char *)hdr - skb_network_header(skb));
+		memmove(skb_network_header(skb) + srhlen,
+			skb_network_header(skb),
+			(unsigned char *)hdr - skb_network_header(skb));
 		skb_pull(skb, srhlen);
 		skb->network_header += srhlen;
 		ipv6_hdr(skb)->nexthdr = nh;
-		ipv6_hdr(skb)->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
+		ipv6_hdr(skb)->payload_len = htons(skb->len -
+						   sizeof(struct ipv6hdr));
 	}
 
 	skb_dst_drop(skb);
@@ -468,9 +470,9 @@ looped_back:
 	if (skb_dst(skb)->dev->flags & IFF_LOOPBACK) {
 		if (ipv6_hdr(skb)->hop_limit <= 1) {
 			IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
-					IPSTATS_MIB_INHDRERRORS);
-			icmpv6_send(skb, ICMPV6_TIME_EXCEED, ICMPV6_EXC_HOPLIMIT,
-					0);
+					 IPSTATS_MIB_INHDRERRORS);
+			icmpv6_send(skb, ICMPV6_TIME_EXCEED,
+				    ICMPV6_EXC_HOPLIMIT, 0);
 			kfree_skb(skb);
 			return -1;
 		}
@@ -857,7 +859,8 @@ int ipv6_parse_hopopts(struct sk_buff *skb)
 
 static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 			    struct ipv6_rt_hdr *opt,
-			    struct in6_addr **addr_p, int srh, struct in6_addr *saddr)
+			    struct in6_addr **addr_p, int srh,
+			    struct in6_addr *saddr)
 {
 	struct rt0_hdr *phdr, *ihdr;
 	struct ipv6_sr_hdr *sr_phdr, *sr_ihdr;
@@ -868,18 +871,23 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 	struct net *net = sock_net(skb->sk);
 
 	if (srh) {
+		int plen;
+
+		plen = (sr_ihdr->hdrlen + 1) << 3;
 		sr_ihdr = (struct ipv6_sr_hdr *)opt;
 
-		sr_phdr = (struct ipv6_sr_hdr *)skb_push(skb, (sr_ihdr->hdrlen + 1) << 3);
+		sr_phdr = (struct ipv6_sr_hdr *)skb_push(skb, plen);
 		memcpy(sr_phdr, sr_ihdr, sizeof(struct ipv6_sr_hdr));
 
 		hops = sr_ihdr->first_segment + 1;
-		memcpy(sr_phdr->segments + 1, sr_ihdr->segments + 1, (hops - 1) * sizeof(struct in6_addr));
+		memcpy(sr_phdr->segments + 1, sr_ihdr->segments + 1,
+		       (hops - 1) * sizeof(struct in6_addr));
 
 		sr_phdr->segments[0] = **addr_p;
 		*addr_p = &sr_ihdr->segments[hops - 1];
 
-		if ((hmackeyid = sr_get_hmac_key_id(sr_phdr))) {
+		hmackeyid = sr_get_hmac_key_id(sr_phdr);
+		if (hmackeyid) {
 			char *key;
 			int keylen;
 			struct seg6_hmac_info *hinfo;
@@ -889,22 +897,26 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 			keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
 
 			memset(SEG6_HMAC(sr_phdr), 0, 32);
-			sr_hmac_sha1(key, keylen, sr_phdr, saddr, (u32*)SEG6_HMAC(sr_phdr));
+			sr_hmac_sha1(key, keylen, sr_phdr, saddr,
+				     (u32 *)SEG6_HMAC(sr_phdr));
 		}
 
 		sr_phdr->nexthdr = *proto;
 		*proto = NEXTHDR_ROUTING;
 	} else {
-		ihdr = (struct rt0_hdr *) opt;
+		int plen;
 
-		phdr = (struct rt0_hdr *) skb_push(skb, (ihdr->rt_hdr.hdrlen + 1) << 3);
+		plen = (ihdr->rt_hdr.hdrlen + 1) << 3;
+		ihdr = (struct rt0_hdr *)opt;
+
+		phdr = (struct rt0_hdr *)skb_push(skb, plen);
 		memcpy(phdr, ihdr, sizeof(struct rt0_hdr));
 
 		hops = ihdr->rt_hdr.hdrlen >> 1;
 
 		if (hops > 1)
 			memcpy(phdr->addr, ihdr->addr + 1,
-				   (hops - 1) * sizeof(struct in6_addr));
+			       (hops - 1) * sizeof(struct in6_addr));
 
 		phdr->addr[hops - 1] = **addr_p;
 		*addr_p = ihdr->addr;
@@ -928,7 +940,8 @@ void ipv6_push_nfrag_opts(struct sk_buff *skb, struct ipv6_txoptions *opt,
 			  struct in6_addr **daddr, struct in6_addr *saddr)
 {
 	if (opt->srcrt) {
-		ipv6_push_rthdr(skb, proto, opt->srcrt, daddr, opt->srcrt_srh, saddr);
+		ipv6_push_rthdr(skb, proto, opt->srcrt, daddr,
+				opt->srcrt_srh, saddr);
 		/*
 		 * IPV6_RTHDRDSTOPTS is ignored
 		 * unless IPV6_RTHDR is set (RFC3542).
@@ -1107,6 +1120,7 @@ struct in6_addr *fl6_update_dst(struct flowi6 *fl6,
 	*orig = fl6->daddr;
 	if (opt->srcrt_srh) {
 		struct ipv6_sr_hdr *srhdr = (struct ipv6_sr_hdr *)opt->srcrt;
+
 		fl6->daddr = srhdr->segments[srhdr->first_segment];
 	} else {
 		fl6->daddr = *((struct rt0_hdr *)opt->srcrt)->addr;

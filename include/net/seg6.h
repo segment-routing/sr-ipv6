@@ -30,14 +30,23 @@
 struct seg6_info;
 
 extern void seg6_flush_segments(struct net *net);
-extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr, struct in6_addr *saddr, u32 *output);
+
+extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
+			struct in6_addr *saddr, u32 *output);
+
 extern int seg6_process_skb(struct net *net, struct sk_buff *skb);
 extern void seg6_init_sysctl(void);
 extern void seg6_nl_init(void);
-extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to, int reverse);
-extern struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment);
+
+extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from,
+			struct ipv6_sr_hdr *hdr_to, int reverse);
+
+extern struct seg6_bib_node *seg6_bib_lookup(struct net *net,
+			struct in6_addr *segment);
+
 extern int seg6_bib_remove(struct net *net, struct in6_addr *addr);
-extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data);
+extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb,
+			void *bib_data);
 extern void __seg6_flush_segment(struct seg6_info *info);
 
 struct seg6_policy {
@@ -58,10 +67,29 @@ struct seg6_list {
 #define SEG6_POL_FLAGS(seg, idx) ((seg)->pol[(idx)].flags)
 #define SEG6_POL_ENTRY(seg, idx) (&((seg)->pol[(idx)].entry))
 #define SEG6_POL_PRESENT(seg, idx) (SEG6_POL_FLAGS(seg, idx) > 0)
-#define SEG6_SRH_POL_SIZE(srh) ((sr_get_flag_p1(srh) > 0) + (sr_get_flag_p2(srh) > 0) + (sr_get_flag_p3(srh) > 0) + (sr_get_flag_p4(srh) > 0))
-#define SEG6_SRH_POL_ENTRY(srh, idx) ((srh)->segments + SEG6_SRH_SEGSIZE(srh) + idx)
+#define SEG6_SRH_POL_ENTRY(s, idx) ((s)->segments + SEG6_SRH_SEGSIZE(s) + idx)
 
-static inline int seg6_pol_size(struct seg6_list *seg)
+#define SEG6_HDR_LEN(seglist) ((SEG6_HDR_BYTELEN(seglist) >> 3) - 1)
+#define SEG6_SRH_SEGSIZE(srh) ((srh)->first_segment + 1)
+
+static int seg6_srh_pol_size(struct ipv6_sr_hdr *srh)
+{
+	int p1, p2, p3, p4;
+
+	p1 = sr_get_flag_p1(srh) > 0;
+	p2 = sr_get_flag_p2(srh) > 0;
+	p3 = sr_get_flag_p3(srh) > 0;
+	p4 = sr_get_flag_p4(srh) > 0;
+
+	return p1+p2+p3+p4;
+}
+
+static struct in6_addr *seg6_srh_pol_entry(struct ipv6_sr_hdr *srh, int idx)
+{
+	return srh->segments + SEG6_SRH_SEGSIZE(srh) + idx;
+}
+
+static int seg6_pol_size(struct seg6_list *seg)
 {
 	int i, cnt = 0;
 
@@ -71,7 +99,7 @@ static inline int seg6_pol_size(struct seg6_list *seg)
 	return cnt;
 }
 
-static inline int seg6_pol_valid(struct seg6_list *seg)
+static int seg6_pol_valid(struct seg6_list *seg)
 {
 	int i, gap = 0;
 
@@ -82,6 +110,12 @@ static inline int seg6_pol_valid(struct seg6_list *seg)
 			return 0;
 
 	return 1;
+}
+
+static int seg6_hdr_bytelen(struct seg6_list *s)
+{
+	return 8 + 16*s->seg_size + (s->hmackeyid ? 32 : 0) +
+		   16*seg6_pol_size(s);
 }
 
 struct seg6_info {
@@ -107,7 +141,7 @@ struct seg6_cache {
 	struct hlist_node cache_chain;
 };
 
-static inline void seg6_release_info(struct seg6_info *info)
+static void seg6_release_info(struct seg6_info *info)
 {
 	if (atomic_dec_and_test(&info->ref)) {
 		__seg6_flush_segment(info);
@@ -115,19 +149,19 @@ static inline void seg6_release_info(struct seg6_info *info)
 	}
 }
 
-static inline void seg6_release_cache(struct seg6_cache *cache)
+static void seg6_release_cache(struct seg6_cache *cache)
 {
 	if (atomic_dec_and_test(&cache->ref))
 		kfree(cache);
 }
 
 /* Binding-SID Information Base */
-#define SEG6_BIND_NEXT			0	/* aka no-op, classical sr processing */
-#define SEG6_BIND_ROUTE 		1	/* force route through given next hop */
-#define SEG6_BIND_INSERT		2	/* push segments in srh */
-#define SEG6_BIND_TRANSLATE		3	/* translate source/dst ? */
-#define SEG6_BIND_SERVICE		4	/* send packet to virtual service */
-#define SEG6_BIND_OVERRIDE_NEXT	5	/* override next segment (break HMAC) */
+#define SEG6_BIND_NEXT 0 /* aka no-op, classical sr processing */
+#define SEG6_BIND_ROUTE 1 /* force route through given next hop */
+#define SEG6_BIND_INSERT 2 /* push segments in srh */
+#define SEG6_BIND_TRANSLATE 3 /* translate source/dst ? */
+#define SEG6_BIND_SERVICE 4 /* send packet to virtual service */
+#define SEG6_BIND_OVERRIDE_NEXT	5 /* override next segment (break HMAC) */
 
 #define SEG6_BIND_FLAG_ASYM	0x01
 
@@ -139,9 +173,8 @@ struct seg6_bib_node {
 	void *data;
 	int datalen;
 	u32 flags;
-	/*
-	 * NEXT: 		NULL
-	 * ROUTE: 		struct in6_addr *
+	/* NEXT:		NULL
+	 * ROUTE:		struct in6_addr *
 	 * INSERT:		<todo>
 	 * TRANSLATE:	<todo>
 	 * SERVICE:		u32 *
@@ -151,12 +184,7 @@ struct seg6_bib_node {
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
 
-#define SEG6_HDR_BYTELEN(seglist) (8 + 16*((seglist)->seg_size) + ((seglist)->hmackeyid ? 32 : 0) + 16*seg6_pol_size(seglist))
-#define SEG6_HDR_LEN(seglist) ((SEG6_HDR_BYTELEN(seglist) >> 3) - 1)
-
-#define SEG6_SRH_SEGSIZE(srh) ((srh)->first_segment + 1)
-
-static inline int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
+static int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
 {
 	if (skb_cloned(skb)) {
 		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {

@@ -1134,15 +1134,17 @@ static struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	   to newsk.
 	 */
 
-	/*
-	 * If there is no matching entry for peer and no previous option was defined,
-	 * and there is already an SRH present in the SYN packet, and we allow SRH
-	 * reversal, then apply reversed SRH to all future packets of the connection.
+	/* If there is no matching entry for peer and no previous option was
+	 * defined, and there is already an SRH present in the SYN packet,
+	 * and we allow SRH reversal, then apply reversed SRH to all future
+	 * packets of the connection.
 	 */
 	if (!np->opt && IP6CB(skb)->srcrt > 0 && np->srhreverse) {
-		srhdr = (struct ipv6_sr_hdr *)(skb_network_header(skb) + IP6CB(skb)->srcrt);
+		srhdr = (struct ipv6_sr_hdr *)skb_network_header(skb) +
+			IP6CB(skb)->srcrt;
 
-		tot_len = CMSG_ALIGN((SEG6_SRH_SEGSIZE(srhdr)*16 + 8)); // do not copy hmac
+		/* do not copy hmac */
+		tot_len = CMSG_ALIGN((SEG6_SRH_SEGSIZE(srhdr) * 16 + 8));
 		tot_len += sizeof(*opt2);
 
 		opt2 = sock_kmalloc(newsk, tot_len, GFP_ATOMIC);
