@@ -873,8 +873,8 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 	if (srh) {
 		int plen;
 
-		plen = (sr_ihdr->hdrlen + 1) << 3;
 		sr_ihdr = (struct ipv6_sr_hdr *)opt;
+		plen = (sr_ihdr->hdrlen + 1) << 3;
 
 		sr_phdr = (struct ipv6_sr_hdr *)skb_push(skb, plen);
 		memcpy(sr_phdr, sr_ihdr, sizeof(struct ipv6_sr_hdr));
@@ -906,8 +906,8 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 	} else {
 		int plen;
 
-		plen = (ihdr->rt_hdr.hdrlen + 1) << 3;
 		ihdr = (struct rt0_hdr *)opt;
+		plen = (ihdr->rt_hdr.hdrlen + 1) << 3;
 
 		phdr = (struct rt0_hdr *)skb_push(skb, plen);
 		memcpy(phdr, ihdr, sizeof(struct rt0_hdr));

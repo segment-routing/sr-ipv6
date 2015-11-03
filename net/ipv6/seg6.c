@@ -950,7 +950,7 @@ static int __seg6_genl_dump_element(struct genl_info *info,
 				    struct seg6_info *s6info,
 				    struct seg6_list *list)
 {
-	void *hdr
+	void *hdr;
 	struct nlattr *nla;
 	struct sk_buff *msg;
 
