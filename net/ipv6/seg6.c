@@ -948,7 +948,7 @@ static int seg6_genl_flush(struct sk_buff *skb, struct genl_info *info)
 
 static int __seg6_genl_dump_element(struct genl_info *info,
 				    struct seg6_info *s6info,
-				    struct seg6_list *list);
+				    struct seg6_list *list)
 {
 	void *hdr
 	struct nlattr *nla;

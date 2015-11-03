@@ -69,10 +69,10 @@ struct seg6_list {
 #define SEG6_POL_PRESENT(seg, idx) (SEG6_POL_FLAGS(seg, idx) > 0)
 #define SEG6_SRH_POL_ENTRY(s, idx) ((s)->segments + SEG6_SRH_SEGSIZE(s) + idx)
 
-#define SEG6_HDR_LEN(seglist) ((SEG6_HDR_BYTELEN(seglist) >> 3) - 1)
+#define SEG6_HDR_LEN(seglist) ((seg6_hdr_bytelen(seglist) >> 3) - 1)
 #define SEG6_SRH_SEGSIZE(srh) ((srh)->first_segment + 1)
 
-static int seg6_srh_pol_size(struct ipv6_sr_hdr *srh)
+static inline int seg6_srh_pol_size(struct ipv6_sr_hdr *srh)
 {
 	int p1, p2, p3, p4;
 
@@ -84,12 +84,13 @@ static int seg6_srh_pol_size(struct ipv6_sr_hdr *srh)
 	return p1+p2+p3+p4;
 }
 
-static struct in6_addr *seg6_srh_pol_entry(struct ipv6_sr_hdr *srh, int idx)
+static inline struct in6_addr *seg6_srh_pol_entry(struct ipv6_sr_hdr *srh,
+						  int idx)
 {
 	return srh->segments + SEG6_SRH_SEGSIZE(srh) + idx;
 }
 
-static int seg6_pol_size(struct seg6_list *seg)
+static inline int seg6_pol_size(struct seg6_list *seg)
 {
 	int i, cnt = 0;
 
@@ -99,7 +100,7 @@ static int seg6_pol_size(struct seg6_list *seg)
 	return cnt;
 }
 
-static int seg6_pol_valid(struct seg6_list *seg)
+static inline int seg6_pol_valid(struct seg6_list *seg)
 {
 	int i, gap = 0;
 
@@ -112,7 +113,7 @@ static int seg6_pol_valid(struct seg6_list *seg)
 	return 1;
 }
 
-static int seg6_hdr_bytelen(struct seg6_list *s)
+static inline int seg6_hdr_bytelen(struct seg6_list *s)
 {
 	return 8 + 16*s->seg_size + (s->hmackeyid ? 32 : 0) +
 		   16*seg6_pol_size(s);
@@ -141,7 +142,7 @@ struct seg6_cache {
 	struct hlist_node cache_chain;
 };
 
-static void seg6_release_info(struct seg6_info *info)
+static inline void seg6_release_info(struct seg6_info *info)
 {
 	if (atomic_dec_and_test(&info->ref)) {
 		__seg6_flush_segment(info);
@@ -149,7 +150,7 @@ static void seg6_release_info(struct seg6_info *info)
 	}
 }
 
-static void seg6_release_cache(struct seg6_cache *cache)
+static inline void seg6_release_cache(struct seg6_cache *cache)
 {
 	if (atomic_dec_and_test(&cache->ref))
 		kfree(cache);
@@ -184,7 +185,7 @@ struct seg6_bib_node {
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
 
-static int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
+static inline int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
 {
 	if (skb_cloned(skb)) {
 		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
