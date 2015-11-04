@@ -272,6 +272,7 @@ static int __seg6_process_skb(struct net *net, struct sk_buff *skb,
 	/* make room for outer header + SRH */
 	skb_push(skb, tot_len);
 	skb_reset_network_header(skb);
+	skb_mac_header_rebuild(skb);
 	hdr = ipv6_hdr(skb);
 
 	/* Initialize outer header with same tclass, flowlabel & hop limit.

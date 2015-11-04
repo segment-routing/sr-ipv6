@@ -384,7 +384,8 @@ looped_back:
 			}
 			skb_reset_network_header(skb);
 			skb_reset_transport_header(skb);
-			skb_dst_drop(skb);
+
+			__skb_tunnel_rx(skb, skb->dev, net);
 
 			netif_rx(skb);
 			return -1;
