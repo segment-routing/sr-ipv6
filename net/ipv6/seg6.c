@@ -238,6 +238,17 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to,
 	memset(hdr_to->segments, 0x42, sizeof(struct in6_addr));
 }
 
+static void __get_tun_src(struct net *net, struct net_device *dev,
+			  struct in6_addr *daddr, struct in6_addr *saddr)
+{
+	if (!ipv6_addr_any(&net->ipv6.seg6_tun_src)) {
+		memcpy(saddr, &net->ipv6.seg6_tun_src, sizeof(struct in6_addr));
+	} else {
+		ipv6_dev_get_saddr(net, dev, daddr, IPV6_PREFER_SRC_PUBLIC,
+				   saddr);
+	}
+}
+
 static int __seg6_process_skb(struct net *net, struct sk_buff *skb,
 			      struct seg6_list *segments,
 			      struct seg6_cache *s6cache)
@@ -329,12 +340,8 @@ populate_segs:
 	hdr->daddr = segments->segments[0];
 
 	/* set router as source address */
-	if (!s6cache || !s6cache->src_set) {
-		ipv6_dev_get_saddr(net, skb->dev,
-				   &hdr->daddr,
-				   IPV6_PREFER_SRC_PUBLIC,
-				   &hdr->saddr);
-	}
+	if (!s6cache || !s6cache->src_set)
+		__get_tun_src(net, skb->dev, &hdr->daddr, &hdr->saddr);
 
 	if (!s6cache)
 		goto skip_cache;
@@ -615,6 +622,7 @@ enum {
 	SEG6_CMD_DUMPBIND,
 	SEG6_CMD_PACKET_IN,
 	SEG6_CMD_PACKET_OUT,
+	SEG6_CMD_SET_TUNSRC,
 	__SEG6_CMD_MAX,
 };
 
@@ -932,6 +940,21 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	hinfo->alg_id = algid;
 
 	net->ipv6.seg6_hmac_table[hmackeyid] = hinfo;
+
+	return 0;
+}
+
+static int seg6_genl_set_tunsrc(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	struct in6_addr *tunsrc;
+
+	if (!info->attrs[SEG6_ATTR_DST])
+		return -EINVAL;
+
+	tunsrc = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
+
+	memcpy(&net->ipv6.seg6_tun_src, tunsrc, sizeof(struct in6_addr));
 
 	return 0;
 }
@@ -1306,6 +1329,12 @@ static struct genl_ops seg6_genl_ops[] = {
 	{
 		.cmd	= SEG6_CMD_PACKET_OUT,
 		.doit	= seg6_genl_packet_out,
+		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd	= SEG6_CMD_SET_TUNSRC,
+		.doit	= seg6_genl_set_tunsrc,
 		.policy	= seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},
