@@ -3233,67 +3233,6 @@ static struct notifier_block ip6_route_dev_notifier = {
 	.priority = 0,
 };
 
-static int __net_init seg6_init(struct net *net)
-{
-	unsigned int i;
-
-	net->ipv6.seg6_hash = kzalloc(4096 * sizeof(struct hlist_head),
-								  GFP_KERNEL);
-	if (!net->ipv6.seg6_hash)
-		return 1;
-
-	for (i = 0; i < 4096; i++)
-		INIT_HLIST_HEAD(&net->ipv6.seg6_hash[i]);
-
-	net->ipv6.seg6_fib_root = kzalloc(sizeof(*net->ipv6.seg6_fib_root),
-					  GFP_KERNEL);
-	if (!net->ipv6.seg6_fib_root) {
-		kfree(net->ipv6.seg6_hash);
-		return 1;
-	}
-
-	net->ipv6.seg6_hmac_table = kzalloc(255 *
-					    sizeof(*net->ipv6.seg6_hmac_table),
-					    GFP_KERNEL);
-	if (!net->ipv6.seg6_hmac_table) {
-		kfree(net->ipv6.seg6_fib_root);
-		kfree(net->ipv6.seg6_hash);
-		return 1;
-	}
-
-	net->ipv6.seg6_bib_head = NULL;
-
-	net->ipv6.seg6_cache_hash = kzalloc(4096 *
-					    sizeof(*net->ipv6.seg6_cache_hash),
-					    GFP_KERNEL);
-	if (!net->ipv6.seg6_cache_hash) {
-		kfree(net->ipv6.seg6_hmac_table);
-		kfree(net->ipv6.seg6_fib_root);
-		kfree(net->ipv6.seg6_hash);
-		return 1;
-	}
-
-	for (i = 0; i < 4096; i++)
-		INIT_HLIST_HEAD(&net->ipv6.seg6_cache_hash[i]);
-
-	pr_info("SR-IPv6: Release v0.02\n");
-
-	return 0;
-}
-
-static void __net_exit seg6_exit(struct net *net)
-{
-	seg6_flush_segments(net);
-	kfree(net->ipv6.seg6_hash);
-	kfree(net->ipv6.seg6_fib_root);
-	kfree(net->ipv6.seg6_hmac_table);
-}
-
-static struct pernet_operations ip6_segments_ops = {
-	.init = seg6_init,
-	.exit = seg6_exit,
-};
-
 int __init ip6_route_init(void)
 {
 	int ret;
@@ -3356,15 +3295,9 @@ int __init ip6_route_init(void)
 	if (ret)
 		goto out_register_late_subsys;
 
-	ret = register_pernet_subsys(&ip6_segments_ops);
-	if (ret)
-		goto out_register_netdevice;
-
 out:
 	return ret;
 
-out_register_netdevice:
-	unregister_netdevice_notifier(&ip6_route_dev_notifier);
 out_register_late_subsys:
 	unregister_pernet_subsys(&ip6_route_net_late_ops);
 fib6_rules_init:
@@ -3386,7 +3319,6 @@ out_kmem_cache:
 
 void ip6_route_cleanup(void)
 {
-	unregister_pernet_subsys(&ip6_segments_ops);
 	unregister_netdevice_notifier(&ip6_route_dev_notifier);
 	unregister_pernet_subsys(&ip6_route_net_late_ops);
 	fib6_rules_cleanup();

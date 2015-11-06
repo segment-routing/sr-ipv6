@@ -49,7 +49,10 @@
 int seg6_srh_reversal;
 int seg6_hmac_strict_key;
 int seg6_enable_caching;
+int seg6_enable_null_caching;
 int seg6_enabled = 1;
+int seg6_enable_netdev_rx;
+int seg6_enable_netdev_swap;
 
 static void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src,
 				  int size)
@@ -138,7 +141,8 @@ static void seg6_insert_cache(struct net *net, struct in6_addr *dst,
 	memcpy(&cache->dst, dst, sizeof(*dst));
 	cache->info = info;
 	atomic_set(&cache->ref, 1);
-	atomic_inc(&info->ref);
+	if (info)
+		atomic_inc(&info->ref);
 
 	hlist_add_head_rcu(&cache->cache_chain,
 			   &net->ipv6.seg6_cache_hash[seg6_hashfn(dst)]);
@@ -147,7 +151,8 @@ static void seg6_insert_cache(struct net *net, struct in6_addr *dst,
 static void __seg6_remove_cache(struct net *net, struct seg6_cache *cache)
 {
 	hlist_del_rcu(&cache->cache_chain);
-	seg6_release_info(cache->info);
+	if (cache->info)
+		seg6_release_info(cache->info);
 	seg6_release_cache(cache);
 }
 
@@ -415,15 +420,23 @@ int seg6_process_skb(struct net *net, struct sk_buff *skb)
 		if (seg_cache) {
 			/* TODO check expiration */
 			seg_info = seg_cache->info;
-			atomic_inc(&seg_info->ref);
+			if (seg_info)
+				atomic_inc(&seg_info->ref);
 		}
 	}
+
+	/* null-entry */
+	if (seg_cache && !seg_info)
+		goto out_release;
 
 	if (!seg_info)
 		seg_info = seg6_segment_lookup(net, &hdr->daddr);
 
-	if (!seg_info)
+	if (!seg_info) {
+		if (seg6_enable_caching && seg6_enable_null_caching)
+			seg6_insert_cache(net, &hdr->daddr, NULL);
 		goto out_release;
+	}
 
 	if (!seg_cache && seg6_enable_caching)
 		seg6_insert_cache(net, &hdr->daddr, seg_info);
@@ -533,6 +546,27 @@ static struct ctl_table seg6_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec
+	},
+	{
+		.procname	= "enable_null_caching",
+		.data		= &seg6_enable_null_caching,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
+	},
+	{
+		.procname	= "enable_netdev_rx",
+		.data		= &seg6_enable_netdev_rx,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
+	},
+	{
+		.procname	= "enable_netdev_swap",
+		.data		= &seg6_enable_netdev_swap,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler=	&proc_dointvec
 	},
 	{
 		.procname	= "enabled",
@@ -1344,4 +1378,94 @@ static struct genl_ops seg6_genl_ops[] = {
 void __net_init seg6_nl_init(void)
 {
 	genl_register_family_with_ops(&seg6_genl_family, seg6_genl_ops);
+}
+
+static netdev_tx_t sr6tun_xmit(struct sk_buff *skb, struct net_device *dev)
+{
+	pr_debug("SR-IPv6: attempt to xmit on sr6tun\n");
+	kfree_skb(skb);
+	return NETDEV_TX_OK;
+}
+
+static int sr6tun_get_iflink(const struct net_device *dev)
+{
+	return 0;
+}
+
+static const struct net_device_ops sr6tun_netdev_ops = {
+	.ndo_start_xmit	= sr6tun_xmit,
+	.ndo_get_iflink	= sr6tun_get_iflink,
+};
+
+static void sr6tun_setup(struct net_device *dev)
+{
+	dev->type	= ARPHRD_NONE;
+	dev->mtu	= ETH_DATA_LEN;
+	dev->flags	= IFF_NOARP;
+	dev->netdev_ops	= &sr6tun_netdev_ops;
+	dev->destructor	= free_netdev;
+	dev->features	|= NETIF_F_NETNS_LOCAL;
+}
+
+static int __net_init sr6tun_init_net(struct net *net)
+{
+	int err;
+	struct net_device *dev;
+	struct inet6_dev *idev;
+
+	rtnl_lock();
+
+	dev = alloc_netdev(0, "sr6tun0", NET_NAME_UNKNOWN, sr6tun_setup);
+
+	if (!dev)
+		return -ENOMEM;
+
+	dev_net_set(dev, net);
+
+	err = register_netdevice(dev);
+	if (err)
+		goto out_fail;
+
+	if (dev_open(dev))
+		goto out_fail;
+
+	dev_hold(dev);
+
+	idev = __in6_dev_get(dev);
+	if (idev)
+		idev->cnf.seg6_enabled = 0;
+
+	net->ipv6.sr6tun_dev = dev;
+
+	rtnl_unlock();
+	return 0;
+
+out_fail:
+	free_netdev(dev);
+	rtnl_unlock();
+	return err;
+}
+
+static void __net_exit sr6tun_exit_net(struct net *net)
+{
+	rtnl_lock();
+	unregister_netdevice(net->ipv6.sr6tun_dev);
+	dev_put(net->ipv6.sr6tun_dev);
+	rtnl_unlock();
+}
+
+static struct pernet_operations sr6tun_net_ops = {
+	.init = sr6tun_init_net,
+	.exit = sr6tun_exit_net,
+};
+
+int __net_init seg6_tunnel_init(void)
+{
+	int err;
+
+	err = register_pernet_device(&sr6tun_net_ops);
+	if (err < 0)
+		return err;
+
+	return err;
 }

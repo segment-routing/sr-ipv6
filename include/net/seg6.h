@@ -37,6 +37,7 @@ extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
 extern int seg6_process_skb(struct net *net, struct sk_buff *skb);
 extern void seg6_init_sysctl(void);
 extern void seg6_nl_init(void);
+extern int seg6_tunnel_init(void);
 
 extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from,
 			struct ipv6_sr_hdr *hdr_to, int reverse);
@@ -184,6 +185,8 @@ struct seg6_bib_node {
 
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
+extern int seg6_enable_netdev_rx;
+extern int seg6_enable_netdev_swap;
 
 static inline int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
 {
