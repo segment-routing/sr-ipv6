@@ -862,7 +862,7 @@ int ipv6_parse_hopopts(struct sk_buff *skb)
 
 static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 			    struct ipv6_rt_hdr *opt,
-			    struct in6_addr **addr_p, int srh,
+			    struct in6_addr **addr_p,
 			    struct in6_addr *saddr)
 {
 	struct rt0_hdr *phdr, *ihdr;
@@ -871,9 +871,17 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 	u8 hmackeyid;
 
 	/* skb->dev might be NULL, hence we fetch net namespace from socket */
-	struct net *net = sock_net(skb->sk);
+	struct net *net = NULL;
 
-	if (srh) {
+	if (skb->dev)
+		net = dev_net(skb->dev);
+	else if (skb->sk)
+		net = sock_net(skb->sk);
+
+	if (!net)
+		BUG();
+
+	if (opt->type == 4) {
 		int plen;
 
 		sr_ihdr = (struct ipv6_sr_hdr *)opt;
@@ -943,8 +951,7 @@ void ipv6_push_nfrag_opts(struct sk_buff *skb, struct ipv6_txoptions *opt,
 			  struct in6_addr **daddr, struct in6_addr *saddr)
 {
 	if (opt->srcrt) {
-		ipv6_push_rthdr(skb, proto, opt->srcrt, daddr,
-				opt->srcrt_srh, saddr);
+		ipv6_push_rthdr(skb, proto, opt->srcrt, daddr, saddr);
 		/*
 		 * IPV6_RTHDRDSTOPTS is ignored
 		 * unless IPV6_RTHDR is set (RFC3542).
@@ -1121,7 +1128,7 @@ struct in6_addr *fl6_update_dst(struct flowi6 *fl6,
 		return NULL;
 
 	*orig = fl6->daddr;
-	if (opt->srcrt_srh) {
+	if (opt->srcrt->type == 4) {
 		struct ipv6_sr_hdr *srhdr = (struct ipv6_sr_hdr *)opt->srcrt;
 
 		fl6->daddr = srhdr->segments[srhdr->first_segment];

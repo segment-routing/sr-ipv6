@@ -1210,8 +1210,6 @@ static int ip6_setup_cork(struct sock *sk, struct inet_cork_full *cork,
 		if (opt->srcrt && !v6_cork->opt->srcrt)
 			return -ENOBUFS;
 
-		v6_cork->opt->srcrt_srh = opt->srcrt_srh;
-
 		/* need source address above miyazawa*/
 	}
 	dst_hold(&rt->dst);

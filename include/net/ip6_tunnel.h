@@ -50,6 +50,8 @@ struct ip6_tnl {
 	__u32 o_seqno;	/* The last output seqno */
 	int hlen;       /* Precalculated GRE header length */
 	int mlink;
+
+	struct ipv6_txoptions *opt;
 };
 
 /* Tunnel encapsulation limit destination sub-option */

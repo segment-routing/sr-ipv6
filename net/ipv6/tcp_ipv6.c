@@ -1153,7 +1153,6 @@ static struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 		seg6_srh_to_tmpl(srhdr, (struct ipv6_sr_hdr *)(opt2 + 1), 1);
 
 		opt2->srcrt = (struct ipv6_rt_hdr *)(opt2 + 1);
-		opt2->srcrt_srh = 1;
 		opt2->opt_nflen = ipv6_optlen(opt2->srcrt);
 
 		newnp->opt = opt2;

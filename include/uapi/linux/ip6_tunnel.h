@@ -48,4 +48,17 @@ struct ip6_tnl_parm2 {
 	__be32			o_key;
 };
 
+struct ip6_tnl_txopts {
+	int tot_len;
+	__u16	opt_flen;
+	__u16	opt_nflen;
+
+	long hopopt_offset;
+	long dst0opt_offset;
+	long srcrt_offset;
+	long dst1opt_offset;
+
+	/* option data starts here */
+};
+
 #endif

@@ -986,6 +986,8 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 	unsigned int max_headroom = sizeof(struct ipv6hdr);
 	u8 proto;
 	int err = -1;
+	struct in6_addr *first_hop;
+	int nflen = 0;
 
 	/* NBMA tunnel */
 	if (ipv6_addr_any(&t->parms.raddr)) {
@@ -1042,6 +1044,11 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 		max_headroom += 8;
 		mtu -= 8;
 	}
+	if (t->opt) {
+		nflen = t->opt->opt_nflen;
+		max_headroom += nflen;
+		mtu -= nflen;
+	}
 	if (mtu < IPV6_MIN_MTU)
 		mtu = IPV6_MIN_MTU;
 	if (skb_dst(skb))
@@ -1081,6 +1088,12 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 	skb->transport_header = skb->network_header;
 
 	proto = fl6->flowi6_proto;
+	first_hop = &fl6->daddr;
+	if (t->opt) {
+		ipv6_push_nfrag_opts(skb, t->opt, &proto, &first_hop,
+				     &fl6->saddr);
+		fl6->daddr = *first_hop;
+	}
 	if (encap_limit >= 0) {
 		init_tel_txopt(&opt, encap_limit);
 		ipv6_push_nfrag_opts(skb, &opt.ops, &proto, NULL, NULL);
@@ -1315,7 +1328,67 @@ ip6_tnl_change(struct ip6_tnl *t, const struct __ip6_tnl_parm *p)
 	return 0;
 }
 
-static int ip6_tnl_update(struct ip6_tnl *t, struct __ip6_tnl_parm *p)
+static void ip6_tnl_reset_mtu(struct ip6_tnl *t)
+{
+	struct net_device *dev = t->dev;
+	int mtu;
+
+	mtu = ETH_DATA_LEN - sizeof(struct ipv6hdr);
+	if (!(t->parms.flags & IP6_TNL_F_IGN_ENCAP_LIMIT))
+		mtu -= 8;
+	if (t->opt)
+		mtu -= t->opt->opt_nflen;
+
+	dev->mtu = mtu;
+}
+
+static int ip6_tnl_parse_exthdr(struct ip6_tnl *t, void *buf)
+{
+	struct ip6_tnl_txopts *topt;
+	struct ipv6_txoptions *opt, *old_opt;
+	int data_len;
+	void *data_start;
+
+	topt = (struct ip6_tnl_txopts *)buf;
+	data_len = topt->tot_len - sizeof(*topt);
+
+	opt = kzalloc(sizeof(*opt) + data_len, GFP_KERNEL);
+	if (!opt)
+		return -ENOMEM;
+
+	opt->tot_len = sizeof(*opt) + data_len;
+	opt->opt_flen = topt->opt_flen;
+	opt->opt_nflen = topt->opt_nflen;
+
+	data_start = (void *)opt + sizeof(*opt);
+	memcpy(data_start, (void *)topt + sizeof(*topt), data_len);
+
+	if (topt->hopopt_offset >= 0)
+		opt->hopopt = (struct ipv6_opt_hdr *)(data_start +
+						      topt->hopopt_offset);
+	if (topt->dst0opt_offset >= 0)
+		opt->dst0opt = (struct ipv6_opt_hdr *)(data_start +
+						       topt->dst0opt_offset);
+	if (topt->srcrt_offset >= 0)
+		opt->srcrt = (struct ipv6_rt_hdr *)(data_start +
+						    topt->srcrt_offset);
+	if (topt->dst1opt_offset >= 0)
+		opt->dst1opt = (struct ipv6_opt_hdr *)(data_start +
+						       topt->dst1opt_offset);
+
+	old_opt = t->opt;
+	t->opt = opt;
+
+	if (old_opt)
+		kfree(old_opt);
+
+	ip6_tnl_reset_mtu(t);
+
+	return 0;
+}
+
+static int ip6_tnl_update(struct ip6_tnl *t, struct __ip6_tnl_parm *p,
+			  void *opt)
 {
 	struct net *net = t->net;
 	struct ip6_tnl_net *ip6n = net_generic(net, ip6_tnl_net_id);
@@ -1324,6 +1397,8 @@ static int ip6_tnl_update(struct ip6_tnl *t, struct __ip6_tnl_parm *p)
 	ip6_tnl_unlink(ip6n, t);
 	synchronize_net();
 	err = ip6_tnl_change(t, p);
+	if (opt)
+		err = ip6_tnl_parse_exthdr(t, opt);
 	ip6_tnl_link(ip6n, t);
 	netdev_state_change(t->dev);
 	return err;
@@ -1447,7 +1522,7 @@ ip6_tnl_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			if (dev == ip6n->fb_tnl_dev)
 				err = ip6_tnl0_update(t, &p1);
 			else
-				err = ip6_tnl_update(t, &p1);
+				err = ip6_tnl_update(t, &p1, NULL);
 		}
 		if (!IS_ERR(t)) {
 			err = 0;
@@ -1555,6 +1630,8 @@ static void ip6_tnl_dev_setup(struct net_device *dev)
 	t = netdev_priv(dev);
 	if (!(t->parms.flags & IP6_TNL_F_IGN_ENCAP_LIMIT))
 		dev->mtu -= 8;
+	if (t->opt)
+		dev->mtu -= t->opt->opt_nflen;
 	dev->flags |= IFF_NOARP;
 	dev->addr_len = sizeof(struct in6_addr);
 	netif_keep_dst(dev);
@@ -1672,6 +1749,7 @@ static int ip6_tnl_newlink(struct net *src_net, struct net_device *dev,
 {
 	struct net *net = dev_net(dev);
 	struct ip6_tnl *nt, *t;
+	int err;
 
 	nt = netdev_priv(dev);
 	ip6_tnl_netlink_parms(data, &nt->parms);
@@ -1680,7 +1758,15 @@ static int ip6_tnl_newlink(struct net *src_net, struct net_device *dev,
 	if (!IS_ERR(t))
 		return -EEXIST;
 
-	return ip6_tnl_create2(dev);
+	err = ip6_tnl_create2(dev);
+	if (err)
+		return err;
+
+	if (data[IFLA_IPTUN_EXTHDR])
+		err = ip6_tnl_parse_exthdr(nt,
+					   nla_data(data[IFLA_IPTUN_EXTHDR]));
+
+	return err;
 }
 
 static int ip6_tnl_changelink(struct net_device *dev, struct nlattr *tb[],
@@ -1690,6 +1776,7 @@ static int ip6_tnl_changelink(struct net_device *dev, struct nlattr *tb[],
 	struct __ip6_tnl_parm p;
 	struct net *net = t->net;
 	struct ip6_tnl_net *ip6n = net_generic(net, ip6_tnl_net_id);
+	void *opt = NULL;
 
 	if (dev == ip6n->fb_tnl_dev)
 		return -EINVAL;
@@ -1703,16 +1790,26 @@ static int ip6_tnl_changelink(struct net_device *dev, struct nlattr *tb[],
 	} else
 		t = netdev_priv(dev);
 
-	return ip6_tnl_update(t, &p);
+	if (data[IFLA_IPTUN_EXTHDR])
+		opt = nla_data(data[IFLA_IPTUN_EXTHDR]);
+
+	return ip6_tnl_update(t, &p, opt);
 }
 
 static void ip6_tnl_dellink(struct net_device *dev, struct list_head *head)
 {
 	struct net *net = dev_net(dev);
 	struct ip6_tnl_net *ip6n = net_generic(net, ip6_tnl_net_id);
+	struct ip6_tnl *t = netdev_priv(dev);
+	struct ipv6_txoptions *opt;
 
-	if (dev != ip6n->fb_tnl_dev)
+	if (dev != ip6n->fb_tnl_dev) {
+		opt = t->opt;
+		t->opt = NULL;
+		if (opt)
+			kfree(opt);
 		unregister_netdevice_queue(dev, head);
+	}
 }
 
 static size_t ip6_tnl_get_size(const struct net_device *dev)
@@ -1741,6 +1838,7 @@ static int ip6_tnl_fill_info(struct sk_buff *skb, const struct net_device *dev)
 {
 	struct ip6_tnl *tunnel = netdev_priv(dev);
 	struct __ip6_tnl_parm *parm = &tunnel->parms;
+	struct ip6_tnl_txopts *topt;
 
 	if (nla_put_u32(skb, IFLA_IPTUN_LINK, parm->link) ||
 	    nla_put_in6_addr(skb, IFLA_IPTUN_LOCAL, &parm->laddr) ||
@@ -1751,8 +1849,49 @@ static int ip6_tnl_fill_info(struct sk_buff *skb, const struct net_device *dev)
 	    nla_put_u32(skb, IFLA_IPTUN_FLAGS, parm->flags) ||
 	    nla_put_u8(skb, IFLA_IPTUN_PROTO, parm->proto))
 		goto nla_put_failure;
+
+	if (tunnel->opt) {
+		int data_len, tot_len;
+		void *data_start;
+
+		data_start = (void *)tunnel->opt + sizeof(*tunnel->opt);
+		data_len = tunnel->opt->tot_len - sizeof(*tunnel->opt);
+		tot_len = data_len + sizeof(*topt);
+		topt = kzalloc(tot_len, GFP_KERNEL);
+		topt->tot_len = tot_len;
+		topt->opt_flen = tunnel->opt->opt_flen;
+		topt->opt_nflen = tunnel->opt->opt_nflen;
+		memcpy((void *)topt + sizeof(*topt), data_start, data_len);
+
+		if (tunnel->opt->hopopt)
+			topt->hopopt_offset = (void *)tunnel->opt->hopopt - data_start;
+		else
+			topt->hopopt_offset = -1;
+
+		if (tunnel->opt->dst0opt)
+			topt->dst0opt_offset = (void *)tunnel->opt->dst0opt - data_start;
+		else
+			topt->dst0opt_offset = -1;
+
+		if (tunnel->opt->srcrt)
+			topt->srcrt_offset = (void *)tunnel->opt->srcrt - data_start;
+		else
+			topt->srcrt_offset = -1;
+
+		if (tunnel->opt->dst1opt)
+			topt->dst1opt_offset = (void *)tunnel->opt->dst1opt - data_start;
+		else
+			topt->dst1opt_offset = -1;
+
+		if (nla_put(skb, IFLA_IPTUN_EXTHDR, tot_len, topt))
+			goto nla_put_failure_free;
+		kfree(topt);
+	}
+
 	return 0;
 
+nla_put_failure_free:
+	kfree(topt);
 nla_put_failure:
 	return -EMSGSIZE;
 }
@@ -1774,6 +1913,7 @@ static const struct nla_policy ip6_tnl_policy[IFLA_IPTUN_MAX + 1] = {
 	[IFLA_IPTUN_FLOWINFO]		= { .type = NLA_U32 },
 	[IFLA_IPTUN_FLAGS]		= { .type = NLA_U32 },
 	[IFLA_IPTUN_PROTO]		= { .type = NLA_U8 },
+	[IFLA_IPTUN_EXTHDR]		= { .type = NLA_BINARY },
 };
 
 static struct rtnl_link_ops ip6_link_ops __read_mostly = {
