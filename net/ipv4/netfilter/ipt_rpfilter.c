@@ -40,7 +40,7 @@ static bool rpfilter_lookup_reverse(struct flowi4 *fl4,
 	struct net *net = dev_net(dev);
 	int ret __maybe_unused;
 
-	if (fib_lookup(net, fl4, &res))
+	if (fib_lookup(net, fl4, &res, FIB_LOOKUP_IGNORE_LINKSTATE))
 		return false;
 
 	if (res.type != RTN_UNICAST) {
@@ -61,9 +61,7 @@ static bool rpfilter_lookup_reverse(struct flowi4 *fl4,
 	if (FIB_RES_DEV(res) == dev)
 		dev_match = true;
 #endif
-	if (dev_match || flags & XT_RPFILTER_LOOSE)
-		return FIB_RES_NH(res).nh_scope <= RT_SCOPE_HOST;
-	return dev_match;
+	return dev_match || flags & XT_RPFILTER_LOOSE;
 }
 
 static bool rpfilter_is_local(const struct sk_buff *skb)

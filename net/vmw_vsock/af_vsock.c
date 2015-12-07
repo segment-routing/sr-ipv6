@@ -581,13 +581,14 @@ struct sock *__vsock_create(struct net *net,
 			    struct socket *sock,
 			    struct sock *parent,
 			    gfp_t priority,
-			    unsigned short type)
+			    unsigned short type,
+			    int kern)
 {
 	struct sock *sk;
 	struct vsock_sock *psk;
 	struct vsock_sock *vsk;
 
-	sk = sk_alloc(net, AF_VSOCK, priority, &vsock_proto);
+	sk = sk_alloc(net, AF_VSOCK, priority, &vsock_proto, kern);
 	if (!sk)
 		return NULL;
 
@@ -1866,7 +1867,7 @@ static int vsock_create(struct net *net, struct socket *sock,
 
 	sock->state = SS_UNCONNECTED;
 
-	return __vsock_create(net, sock, NULL, GFP_KERNEL, 0) ? 0 : -ENOMEM;
+	return __vsock_create(net, sock, NULL, GFP_KERNEL, 0, kern) ? 0 : -ENOMEM;
 }
 
 static const struct net_proto_family vsock_family_ops = {
@@ -1947,13 +1948,13 @@ int __vsock_core_init(const struct vsock_transport *t, struct module *owner)
 	err = misc_register(&vsock_device);
 	if (err) {
 		pr_err("Failed to register misc device\n");
-		return -ENOENT;
+		goto err_reset_transport;
 	}
 
 	err = proto_register(&vsock_proto, 1);	/* we want our slab */
 	if (err) {
 		pr_err("Cannot register vsock protocol\n");
-		goto err_misc_deregister;
+		goto err_deregister_misc;
 	}
 
 	err = sock_register(&vsock_family_ops);
@@ -1968,8 +1969,9 @@ int __vsock_core_init(const struct vsock_transport *t, struct module *owner)
 
 err_unregister_proto:
 	proto_unregister(&vsock_proto);
-err_misc_deregister:
+err_deregister_misc:
 	misc_deregister(&vsock_device);
+err_reset_transport:
 	transport = NULL;
 err_busy:
 	mutex_unlock(&vsock_register_mutex);

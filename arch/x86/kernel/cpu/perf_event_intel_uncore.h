@@ -325,6 +325,7 @@ extern struct event_constraint uncore_constraint_empty;
 int snb_uncore_pci_init(void);
 int ivb_uncore_pci_init(void);
 int hsw_uncore_pci_init(void);
+int bdw_uncore_pci_init(void);
 void snb_uncore_cpu_init(void);
 void nhm_uncore_cpu_init(void);
 
@@ -335,6 +336,8 @@ int ivbep_uncore_pci_init(void);
 void ivbep_uncore_cpu_init(void);
 int hswep_uncore_pci_init(void);
 void hswep_uncore_cpu_init(void);
+int bdx_uncore_pci_init(void);
+void bdx_uncore_cpu_init(void);
 
 /* perf_event_intel_uncore_nhmex.c */
 void nhmex_uncore_cpu_init(void);

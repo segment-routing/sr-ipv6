@@ -295,6 +295,7 @@
 #define IOMMU_PTE_IR (1ULL << 61)
 #define IOMMU_PTE_IW (1ULL << 62)
 
+#define DTE_FLAG_MASK	(0x3ffULL << 32)
 #define DTE_FLAG_IOTLB	(0x01UL << 32)
 #define DTE_FLAG_GV	(0x01ULL << 55)
 #define DTE_GLX_SHIFT	(56)
@@ -398,6 +399,7 @@ struct amd_iommu_fault {
 
 
 struct iommu_domain;
+struct irq_domain;
 
 /*
  * This structure contains generic data for  IOMMU protection domains
@@ -446,8 +448,6 @@ struct aperture_range {
  * Data container for a dma_ops specific protection domain
  */
 struct dma_ops_domain {
-	struct list_head list;
-
 	/* generic protection domain information */
 	struct protection_domain domain;
 
@@ -462,12 +462,6 @@ struct dma_ops_domain {
 
 	/* This will be set to true when TLB needs to be flushed */
 	bool need_flush;
-
-	/*
-	 * if this is a preallocated domain, keep the device for which it was
-	 * preallocated in this variable
-	 */
-	u16 target_dev;
 };
 
 /*
@@ -552,9 +546,6 @@ struct amd_iommu {
 	/* if one, we need to send a completion wait command */
 	bool need_sync;
 
-	/* default dma_ops domain for that IOMMU */
-	struct dma_ops_domain *default_dom;
-
 	/* IOMMU sysfs device */
 	struct device *iommu_dev;
 
@@ -579,6 +570,10 @@ struct amd_iommu {
 	/* The maximum PC banks and counters/bank (PCSup=1) */
 	u8 max_banks;
 	u8 max_counters;
+#ifdef CONFIG_IRQ_REMAP
+	struct irq_domain *ir_domain;
+	struct irq_domain *msi_domain;
+#endif
 };
 
 struct devid_map {

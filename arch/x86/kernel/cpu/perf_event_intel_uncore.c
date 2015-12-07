@@ -233,9 +233,8 @@ static enum hrtimer_restart uncore_pmu_hrtimer(struct hrtimer *hrtimer)
 
 void uncore_pmu_start_hrtimer(struct intel_uncore_box *box)
 {
-	__hrtimer_start_range_ns(&box->hrtimer,
-			ns_to_ktime(box->hrtimer_duration), 0,
-			HRTIMER_MODE_REL_PINNED, 0);
+	hrtimer_start(&box->hrtimer, ns_to_ktime(box->hrtimer_duration),
+		      HRTIMER_MODE_REL_PINNED);
 }
 
 void uncore_pmu_cancel_hrtimer(struct intel_uncore_box *box)
@@ -912,6 +911,9 @@ static int __init uncore_pci_init(void)
 	case 63: /* Haswell-EP */
 		ret = hswep_uncore_pci_init();
 		break;
+	case 86: /* BDX-DE */
+		ret = bdx_uncore_pci_init();
+		break;
 	case 42: /* Sandy Bridge */
 		ret = snb_uncore_pci_init();
 		break;
@@ -921,6 +923,9 @@ static int __init uncore_pci_init(void)
 	case 60: /* Haswell */
 	case 69: /* Haswell Celeron */
 		ret = hsw_uncore_pci_init();
+		break;
+	case 61: /* Broadwell */
+		ret = bdw_uncore_pci_init();
 		break;
 	default:
 		return 0;
@@ -1207,6 +1212,11 @@ static int __init uncore_cpu_init(void)
 		break;
 	case 42: /* Sandy Bridge */
 	case 58: /* Ivy Bridge */
+	case 60: /* Haswell */
+	case 69: /* Haswell */
+	case 70: /* Haswell */
+	case 61: /* Broadwell */
+	case 71: /* Broadwell */
 		snb_uncore_cpu_init();
 		break;
 	case 45: /* Sandy Bridge-EP */
@@ -1221,6 +1231,9 @@ static int __init uncore_cpu_init(void)
 		break;
 	case 63: /* Haswell-EP */
 		hswep_uncore_cpu_init();
+		break;
+	case 86: /* BDX-DE */
+		bdx_uncore_cpu_init();
 		break;
 	default:
 		return 0;

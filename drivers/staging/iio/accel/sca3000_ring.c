@@ -116,7 +116,7 @@ static int sca3000_read_first_n_hw_rb(struct iio_buffer *r,
 	if (ret)
 		goto error_ret;
 
-	for (i = 0; i < num_read; i++)
+	for (i = 0; i < num_read / sizeof(u16); i++)
 		*(((u16 *)rx) + i) = be16_to_cpup((__be16 *)rx + i);
 
 	if (copy_to_user(buf, rx, num_read))
@@ -258,6 +258,8 @@ static const struct iio_buffer_access_funcs sca3000_ring_access_funcs = {
 	.read_first_n = &sca3000_read_first_n_hw_rb,
 	.data_available = sca3000_ring_buf_data_available,
 	.release = sca3000_ring_release,
+
+	.modes = INDIO_BUFFER_HARDWARE,
 };
 
 int sca3000_configure_ring(struct iio_dev *indio_dev)
