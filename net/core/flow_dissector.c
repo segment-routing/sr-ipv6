@@ -790,7 +790,7 @@ u32 skb_get_poff(const struct sk_buff *skb)
 	return __skb_get_poff(skb, skb->data, &keys, skb_headlen(skb));
 }
 
-__u32 __get_hash_from_flowi6(const struct flowi6 *fl6, struct flow_keys *keys)
+__u32 ___get_hash_from_flowi6(const struct flowi6 *fl6, struct flow_keys *keys, u32 perturb)
 {
 	memset(keys, 0, sizeof(*keys));
 
@@ -805,7 +805,16 @@ __u32 __get_hash_from_flowi6(const struct flowi6 *fl6, struct flow_keys *keys)
 	keys->tags.flow_label = (__force u32)fl6->flowlabel;
 	keys->basic.ip_proto = fl6->flowi6_proto;
 
+	if (perturb)
+		return __flow_hash_from_keys(keys, perturb);
+
 	return flow_hash_from_keys(keys);
+}
+EXPORT_SYMBOL(___get_hash_from_flowi6);
+
+__u32 __get_hash_from_flowi6(const struct flowi6 *fl6, struct flow_keys *keys)
+{
+	return ___get_hash_from_flowi6(fl6, keys, 0);
 }
 EXPORT_SYMBOL(__get_hash_from_flowi6);
 

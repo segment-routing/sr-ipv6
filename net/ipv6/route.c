@@ -431,19 +431,20 @@ static bool rt6_check_expired(const struct rt6_info *rt)
  * Adapted from fib_info_hashfn()
  */
 static int rt6_info_hash_nhsfn(unsigned int candidate_count,
-			       const struct flowi6 *fl6)
+			       const struct flowi6 *fl6, u32 perturb)
 {
-	return get_hash_from_flowi6(fl6) % candidate_count;
+	return get_hash_from_flowi6_perturb(fl6, perturb) % candidate_count;
 }
 
 static struct rt6_info *rt6_multipath_select(struct rt6_info *match,
 					     struct flowi6 *fl6, int oif,
-					     int strict)
+					     int strict, u32 perturb)
 {
 	struct rt6_info *sibling, *next_sibling;
 	int route_choosen;
 
-	route_choosen = rt6_info_hash_nhsfn(match->rt6i_nsiblings + 1, fl6);
+	route_choosen = rt6_info_hash_nhsfn(match->rt6i_nsiblings + 1, fl6,
+					    perturb);
 	/* Don't change the route, if route_choosen == 0
 	 * (siblings does not include ourself)
 	 */
@@ -853,6 +854,7 @@ static struct rt6_info *ip6_pol_route_lookup(struct net *net,
 {
 	struct fib6_node *fn;
 	struct rt6_info *rt;
+	u32 perturb = (u32)net->ipv6.sysctl.ip6_rt_mphash_perturb;
 
 	read_lock_bh(&table->tb6_lock);
 	fn = fib6_lookup(&table->tb6_root, &fl6->daddr, &fl6->saddr);
@@ -860,7 +862,8 @@ restart:
 	rt = fn->leaf;
 	rt = rt6_device_match(net, rt, &fl6->saddr, fl6->flowi6_oif, flags);
 	if (rt->rt6i_nsiblings && fl6->flowi6_oif == 0)
-		rt = rt6_multipath_select(rt, fl6, fl6->flowi6_oif, flags);
+		rt = rt6_multipath_select(rt, fl6, fl6->flowi6_oif, flags,
+					  perturb);
 	if (rt == net->ipv6.ip6_null_entry) {
 		fn = fib6_backtrack(fn, &fl6->saddr);
 		if (fn)
@@ -1046,6 +1049,7 @@ static struct rt6_info *ip6_pol_route(struct net *net, struct fib6_table *table,
 	struct fib6_node *fn, *saved_fn;
 	struct rt6_info *rt;
 	int strict = 0;
+	u32 perturb = (u32)net->ipv6.sysctl.ip6_rt_mphash_perturb;
 
 	strict |= flags & RT6_LOOKUP_F_IFACE;
 	if (net->ipv6.devconf_all->forwarding == 0)
@@ -1062,7 +1066,7 @@ static struct rt6_info *ip6_pol_route(struct net *net, struct fib6_table *table,
 redo_rt6_select:
 	rt = rt6_select(fn, oif, strict);
 	if (rt->rt6i_nsiblings)
-		rt = rt6_multipath_select(rt, fl6, oif, strict);
+		rt = rt6_multipath_select(rt, fl6, oif, strict, perturb);
 	if (rt == net->ipv6.ip6_null_entry) {
 		fn = fib6_backtrack(fn, &fl6->saddr);
 		if (fn)
@@ -3519,6 +3523,13 @@ struct ctl_table ipv6_route_table_template[] = {
 		.mode		=	0644,
 		.proc_handler	=	proc_dointvec_ms_jiffies,
 	},
+	{
+		.procname	=	"mphash_perturb",
+		.data		=	&init_net.ipv6.sysctl.ip6_rt_mphash_perturb,
+		.maxlen		=	sizeof(int),
+		.mode		=	0644,
+		.proc_handler	=	proc_dointvec,
+	},
 	{ }
 };
 
@@ -3542,6 +3553,7 @@ struct ctl_table * __net_init ipv6_route_sysctl_init(struct net *net)
 		table[7].data = &net->ipv6.sysctl.ip6_rt_mtu_expires;
 		table[8].data = &net->ipv6.sysctl.ip6_rt_min_advmss;
 		table[9].data = &net->ipv6.sysctl.ip6_rt_gc_min_interval;
+		table[10].data = &net->ipv6.sysctl.ip6_rt_mphash_perturb;
 
 		/* Don't export sysctls to unprivileged users */
 		if (net->user_ns != &init_user_ns)
@@ -3605,6 +3617,7 @@ static int __net_init ip6_route_net_init(struct net *net)
 	net->ipv6.sysctl.ip6_rt_gc_elasticity = 9;
 	net->ipv6.sysctl.ip6_rt_mtu_expires = 10*60*HZ;
 	net->ipv6.sysctl.ip6_rt_min_advmss = IPV6_MIN_MTU - 20 - 40;
+	net->ipv6.sysctl.ip6_rt_mphash_perturb = 0;
 
 	net->ipv6.ip6_rt_gc_expire = 30*HZ;
 

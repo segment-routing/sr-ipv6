@@ -246,6 +246,14 @@ void flow_cache_flush_deferred(struct net *net);
 extern atomic_t flow_cache_genid;
 
 __u32 __get_hash_from_flowi6(const struct flowi6 *fl6, struct flow_keys *keys);
+__u32 ___get_hash_from_flowi6(const struct flowi6 *fl6, struct flow_keys *keys, u32 perturb);
+
+static inline __u32 get_hash_from_flowi6_perturb(const struct flowi6 *fl6, u32 perturb)
+{
+	struct flow_keys keys;
+
+	return ___get_hash_from_flowi6(fl6, &keys, perturb);
+}
 
 static inline __u32 get_hash_from_flowi6(const struct flowi6 *fl6)
 {
