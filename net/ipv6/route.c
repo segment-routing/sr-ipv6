@@ -1170,6 +1170,39 @@ void ip6_route_input_gw(struct sk_buff *skb, struct in6_addr *gateway)
 	skb_dst_set(skb, ip6_route_input_lookup(net, skb->dev, &fl6, flags));
 }
 
+static void ip6_route_input_set_l4flow(struct sk_buff *skb, struct flowi6 *fl6)
+{
+	const struct ipv6hdr *iph = ipv6_hdr(skb);
+
+	switch (iph->nexthdr) {
+	case NEXTHDR_TCP:
+	case NEXTHDR_UDP:
+		if (!pskb_may_pull(skb, skb_transport_offset(skb) + 4))
+			break;
+		fl6->fl6_sport = *(__be16 *)skb_transport_header(skb);
+		fl6->fl6_dport = *((__be16 *)skb_transport_header(skb) + 1);
+		break;
+	case NEXTHDR_ROUTING:
+	{
+		struct ipv6_rt_hdr *rthdr;
+		int offset;
+
+		rthdr = (struct ipv6_rt_hdr *)skb_transport_header(skb);
+		offset = (rthdr->hdrlen + 1) << 3;
+
+		if (!pskb_may_pull(skb, skb_transport_offset(skb) + offset))
+			break;
+
+		fl6->flowi6_proto = rthdr->nexthdr;
+
+		skb->transport_header += offset;
+		ip6_route_input_set_l4flow(skb, fl6);
+		skb->transport_header -= offset;
+		break;
+	}
+	}
+}
+
 void ip6_route_input(struct sk_buff *skb)
 {
 	const struct ipv6hdr *iph = ipv6_hdr(skb);
@@ -1188,6 +1221,9 @@ void ip6_route_input(struct sk_buff *skb)
 	tun_info = skb_tunnel_info(skb);
 	if (tun_info && !(tun_info->mode & IP_TUNNEL_INFO_TX))
 		fl6.flowi6_tun_key.tun_id = tun_info->key.tun_id;
+
+	ip6_route_input_set_l4flow(skb, &fl6);
+
 	skb_dst_drop(skb);
 	skb_dst_set(skb, ip6_route_input_lookup(net, skb->dev, &fl6, flags));
 }
