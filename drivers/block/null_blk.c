@@ -219,6 +219,9 @@ static void end_cmd(struct nullb_cmd *cmd)
 {
 	struct request_queue *q = NULL;
 
+	if (cmd->rq)
+		q = cmd->rq->q;
+
 	switch (queue_mode)  {
 	case NULL_Q_MQ:
 		blk_mq_end_request(cmd->rq, 0);
@@ -229,23 +232,19 @@ static void end_cmd(struct nullb_cmd *cmd)
 		break;
 	case NULL_Q_BIO:
 		bio_endio(cmd->bio);
-		goto free_cmd;
+		break;
 	}
 
-	if (cmd->rq)
-		q = cmd->rq->q;
+	free_cmd(cmd);
 
 	/* Restart queue if needed, as we are freeing a tag */
-	if (q && !q->mq_ops && blk_queue_stopped(q)) {
+	if (queue_mode == NULL_Q_RQ && blk_queue_stopped(q)) {
 		unsigned long flags;
 
 		spin_lock_irqsave(q->queue_lock, flags);
-		if (blk_queue_stopped(q))
-			blk_start_queue(q);
+		blk_start_queue_async(q);
 		spin_unlock_irqrestore(q->queue_lock, flags);
 	}
-free_cmd:
-	free_cmd(cmd);
 }
 
 static enum hrtimer_restart null_cmd_timer_expired(struct hrtimer *timer)
@@ -444,8 +443,9 @@ static void null_lnvm_end_io(struct request *rq, int error)
 	blk_put_request(rq);
 }
 
-static int null_lnvm_submit_io(struct request_queue *q, struct nvm_rq *rqd)
+static int null_lnvm_submit_io(struct nvm_dev *dev, struct nvm_rq *rqd)
 {
+	struct request_queue *q = dev->q;
 	struct request *rq;
 	struct bio *bio = rqd->bio;
 
@@ -470,7 +470,7 @@ static int null_lnvm_submit_io(struct request_queue *q, struct nvm_rq *rqd)
 	return 0;
 }
 
-static int null_lnvm_id(struct request_queue *q, struct nvm_id *id)
+static int null_lnvm_id(struct nvm_dev *dev, struct nvm_id *id)
 {
 	sector_t size = gb * 1024 * 1024 * 1024ULL;
 	sector_t blksize;
@@ -523,7 +523,7 @@ static int null_lnvm_id(struct request_queue *q, struct nvm_id *id)
 	return 0;
 }
 
-static void *null_lnvm_create_dma_pool(struct request_queue *q, char *name)
+static void *null_lnvm_create_dma_pool(struct nvm_dev *dev, char *name)
 {
 	mempool_t *virtmem_pool;
 
@@ -541,7 +541,7 @@ static void null_lnvm_destroy_dma_pool(void *pool)
 	mempool_destroy(pool);
 }
 
-static void *null_lnvm_dev_dma_alloc(struct request_queue *q, void *pool,
+static void *null_lnvm_dev_dma_alloc(struct nvm_dev *dev, void *pool,
 				gfp_t mem_flags, dma_addr_t *dma_handler)
 {
 	return mempool_alloc(pool, mem_flags);
@@ -765,7 +765,9 @@ out:
 
 static int __init null_init(void)
 {
+	int ret = 0;
 	unsigned int i;
+	struct nullb *nullb;
 
 	if (bs > PAGE_SIZE) {
 		pr_warn("null_blk: invalid block size\n");
@@ -807,22 +809,29 @@ static int __init null_init(void)
 								0, 0, NULL);
 		if (!ppa_cache) {
 			pr_err("null_blk: unable to create ppa cache\n");
-			return -ENOMEM;
-		}
-	}
-
-	for (i = 0; i < nr_devices; i++) {
-		if (null_add_dev()) {
-			unregister_blkdev(null_major, "nullb");
+			ret = -ENOMEM;
 			goto err_ppa;
 		}
 	}
 
+	for (i = 0; i < nr_devices; i++) {
+		ret = null_add_dev();
+		if (ret)
+			goto err_dev;
+	}
+
 	pr_info("null: module loaded\n");
 	return 0;
-err_ppa:
+
+err_dev:
+	while (!list_empty(&nullb_list)) {
+		nullb = list_entry(nullb_list.next, struct nullb, list);
+		null_del_dev(nullb);
+	}
 	kmem_cache_destroy(ppa_cache);
-	return -EINVAL;
+err_ppa:
+	unregister_blkdev(null_major, "nullb");
+	return ret;
 }
 
 static void __exit null_exit(void)
