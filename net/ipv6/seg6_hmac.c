@@ -105,7 +105,7 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
 	if (!ksize)
 		return -EINVAL;
 
-	plen = 16 + 1 + 1 + 1 + (hdr->first_segment + 1) * 8;
+	plen = 16 + 1 + 1 + 1 + (hdr->first_segment + 1) * 16;
 
 	{
 		u8 inner_msg[64 + plen];
@@ -116,11 +116,11 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
 		memcpy(pptr, saddr->s6_addr, 16);
 		pptr += 16;
 		*pptr++ = hdr->first_segment;
-		*pptr++ = (sr_get_flags(hdr) & 0x8) << 4;
+		*pptr++ = !!(sr_get_flags(hdr) & SR6_FLAG_CLEANUP);
 		*pptr++ = sr_get_hmac_key_id(hdr);
 
 		for (i = 0; i < hdr->first_segment + 1; i += 1) {
-			addr = hdr->segments + (i >> 1);
+			addr = hdr->segments + i;
 			memcpy(pptr, addr->s6_addr, 16);
 			pptr += 16;
 		}
