@@ -880,7 +880,7 @@ static int __net_init seg6_init(struct net *net)
 	for (i = 0; i < 4096; i++)
 		INIT_HLIST_HEAD(&net->ipv6.seg6_cache_hash[i]);
 
-	pr_info("SR-IPv6: Release v0.02\n");
+	pr_info("SR-IPv6: Release v0.10\n");
 
 	return 0;
 }
