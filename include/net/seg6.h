@@ -20,6 +20,8 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/route.h>
+#include <linux/seg6.h>
+#include <net/lwtunnel.h>
 
 #define seg6_addrto64(addr) ((u64)((u64)(addr)->s6_addr[0] << 56 | (u64)(addr)->s6_addr[1] << 48 | (u64)(addr)->s6_addr[2] << 40 | (u64)(addr)->s6_addr[3] << 32 | (addr)->s6_addr[12] << 24 | (addr)->s6_addr[13] << 16 | (addr)->s6_addr[14] << 8 | (addr)->s6_addr[15]))
 #define seg6_hashfn(dst) hash_64(seg6_addrto64(dst), 12)
@@ -202,6 +204,11 @@ static inline int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
 		skb->ip_summed = CHECKSUM_NONE;
 
 	return 0;
+}
+
+static inline struct seg6_iptunnel_encap *seg6_lwtunnel_encap(struct lwtunnel_state *lwtstate)
+{
+	return (struct seg6_iptunnel_encap *)lwtstate->data;
 }
 
 #endif

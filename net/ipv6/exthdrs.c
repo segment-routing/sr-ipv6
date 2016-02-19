@@ -51,6 +51,7 @@
 #include <crypto/sha.h>
 #include <net/seg6.h>
 #include <net/seg6_hmac.h>
+#include <linux/seg6.h>
 
 #include <linux/uaccess.h>
 

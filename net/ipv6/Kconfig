@@ -276,4 +276,11 @@ config IPV6_PIMSM_V2
 	  Support for IPv6 PIM multicast routing protocol PIM-SMv2.
 	  If unsure, say N.
 
+config IPV6_SEG6_IPTUNNEL
+	bool "IPv6: Segment Routing with IPv6 IP Tunnels support"
+	select LWTUNNEL
+	---help---
+	  Support for IPv6 SRH injection.
+	  If unsure, say N.
+
 endif # IPV6

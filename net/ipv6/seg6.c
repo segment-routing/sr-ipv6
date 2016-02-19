@@ -44,6 +44,7 @@
 #include <net/genetlink.h>
 #include <net/seg6_table.h>
 #include <net/seg6_hmac.h>
+#include <linux/seg6.h>
 #include <linux/random.h>
 
 int seg6_srh_reversal;
