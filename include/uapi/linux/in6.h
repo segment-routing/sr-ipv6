@@ -234,7 +234,6 @@ struct in6_flowlabel_req {
 #if 0	/* not yet */
 #define IPV6_USE_MIN_MTU	63
 #endif
-#define IPV6_SRHREVERSE		64
 
 /*
  * Netfilter (1)
@@ -282,6 +281,8 @@ struct in6_flowlabel_req {
 #define IPV6_RECVORIGDSTADDR    IPV6_ORIGDSTADDR
 #define IPV6_TRANSPARENT        75
 #define IPV6_UNICAST_IF         76
+
+#define IPV6_SRHREVERSE		199
 
 /*
  * Multicast Routing:
