@@ -1170,7 +1170,7 @@ void ip6_route_input_gw(struct sk_buff *skb, struct in6_addr *gateway)
 	skb_dst_set(skb, ip6_route_input_lookup(net, skb->dev, &fl6, flags));
 }
 
-static void ip6_route_input_set_l4flow(struct sk_buff *skb, struct flowi6 *fl6)
+void ip6_route_set_l4flow(struct sk_buff *skb, struct flowi6 *fl6)
 {
 	const struct ipv6hdr *iph = ipv6_hdr(skb);
 
@@ -1196,12 +1196,13 @@ static void ip6_route_input_set_l4flow(struct sk_buff *skb, struct flowi6 *fl6)
 		fl6->flowi6_proto = rthdr->nexthdr;
 
 		skb->transport_header += offset;
-		ip6_route_input_set_l4flow(skb, fl6);
+		ip6_route_set_l4flow(skb, fl6);
 		skb->transport_header -= offset;
 		break;
 	}
 	}
 }
+EXPORT_SYMBOL(ip6_route_set_l4flow);
 
 void ip6_route_input(struct sk_buff *skb)
 {
@@ -1222,7 +1223,7 @@ void ip6_route_input(struct sk_buff *skb)
 	if (tun_info && !(tun_info->mode & IP_TUNNEL_INFO_TX))
 		fl6.flowi6_tun_key.tun_id = tun_info->key.tun_id;
 
-	ip6_route_input_set_l4flow(skb, &fl6);
+	ip6_route_set_l4flow(skb, &fl6);
 
 	skb_dst_drop(skb);
 	skb_dst_set(skb, ip6_route_input_lookup(net, skb->dev, &fl6, flags));

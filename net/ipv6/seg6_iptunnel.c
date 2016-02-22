@@ -213,12 +213,28 @@ int seg6_input(struct sk_buff *skb)
 int seg6_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	int err;
+	struct dst_entry *dst;
+	struct ipv6hdr *hdr;
+	struct flowi6 fl6;
 
 	if ((unlikely(err = seg6_do_srh(skb))))
 		return err;
 
+	hdr = ipv6_hdr(skb);
+	fl6.daddr = hdr->daddr;
+	fl6.saddr = hdr->saddr;
+	fl6.flowlabel = ip6_flowinfo(hdr);
+	fl6.flowi6_mark = skb->mark;
+	fl6.flowi6_proto = hdr->nexthdr;
+
+	ip6_route_set_l4flow(skb, &fl6);
+
 	skb_dst_drop(skb);
-	ip6_route_input(skb);
+
+	if ((unlikely(err = ip6_dst_lookup(net, sk, &dst, &fl6))))
+		return err;
+
+	skb_dst_set(skb, dst);
 
 	return dst_output(net, sk, skb);
 }

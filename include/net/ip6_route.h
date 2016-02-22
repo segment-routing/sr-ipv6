@@ -201,4 +201,6 @@ static inline struct in6_addr *rt6_nexthop(struct rt6_info *rt,
 		return daddr;
 }
 
+void ip6_route_set_l4flow(struct sk_buff *skb, struct flowi6 *fl6);
+
 #endif
