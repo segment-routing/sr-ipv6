@@ -1040,16 +1040,11 @@ static int __init inet6_init(void)
 	seg6_nl_init();
 	err = register_pernet_subsys(&ip6_segments_ops);
 	if (err)
-		goto seg6_fail1;
-	err = seg6_tunnel_init();
-	if (err)
 		goto seg6_fail;
 out:
 	return err;
 
 seg6_fail:
-	unregister_pernet_subsys(&ip6_segments_ops);
-seg6_fail1:
 #ifdef CONFIG_SYSCTL
 sysctl_fail:
 	pingv6_exit();

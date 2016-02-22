@@ -452,17 +452,9 @@ int ip6_forward(struct sk_buff *skb)
 
 	/* apply srh if needed */
 	if (seg6_process_skb(net, skb)) {
-		if (!seg6_enable_netdev_rx) {
-			if (seg6_enable_netdev_swap)
-				skb->dev = net->ipv6.sr6tun_dev;
-			skb_dst_drop(skb);
-			ip6_route_input(skb);
-			return dst_input(skb);
-		} else {
-			__skb_tunnel_rx(skb, net->ipv6.sr6tun_dev, net);
-			netif_rx(skb);
-			return 0;
-		}
+		skb_dst_drop(skb);
+		ip6_route_input(skb);
+		return dst_input(skb);
 	}
 
 	if (!xfrm6_route_forward(skb)) {

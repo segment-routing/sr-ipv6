@@ -187,8 +187,6 @@ struct seg6_bib_node {
 
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
-extern int seg6_enable_netdev_rx;
-extern int seg6_enable_netdev_swap;
 
 static inline int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
 {

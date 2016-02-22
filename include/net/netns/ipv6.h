@@ -87,7 +87,6 @@ struct netns_ipv6 {
 	struct seg6_hmac_info	**seg6_hmac_table;
 	struct seg6_bib_node	*seg6_bib_head;
 	struct in6_addr		seg6_tun_src;
-	struct net_device	*sr6tun_dev;
 	atomic_t		dev_addr_genid;
 	atomic_t		fib6_sernum;
 };
