@@ -59,9 +59,6 @@
 #include <net/netevent.h>
 #include <net/netlink.h>
 #include <net/nexthop.h>
-#include <net/seg6.h>
-#include <net/seg6_table.h>
-#include <net/seg6_hmac.h>
 #include <net/lwtunnel.h>
 #include <net/ip_tunnels.h>
 #include <net/l3mdev.h>

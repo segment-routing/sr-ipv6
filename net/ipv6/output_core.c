@@ -8,7 +8,6 @@
 #include <net/ip6_fib.h>
 #include <net/addrconf.h>
 #include <linux/netfilter_ipv6.h>
-#include <net/seg6.h>
 #include <net/secure_seq.h>
 #include <linux/netfilter.h>
 

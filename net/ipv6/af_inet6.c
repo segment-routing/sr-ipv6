@@ -61,7 +61,6 @@
 #include <net/ip6_tunnel.h>
 #endif
 #include <net/seg6.h>
-#include <net/seg6_table.h>
 #include <net/seg6_hmac.h>
 
 #include <asm/uaccess.h>
@@ -839,46 +838,13 @@ static const struct ipv6_stub ipv6_stub_impl = {
 
 static int __net_init seg6_init(struct net *net)
 {
-	unsigned int i;
-
-	net->ipv6.seg6_hash = kzalloc(4096 * sizeof(struct hlist_head),
-				      GFP_KERNEL);
-	if (!net->ipv6.seg6_hash)
-		return 1;
-
-	for (i = 0; i < 4096; i++)
-		INIT_HLIST_HEAD(&net->ipv6.seg6_hash[i]);
-
-	net->ipv6.seg6_fib_root = kzalloc(sizeof(*net->ipv6.seg6_fib_root),
-					  GFP_KERNEL);
-	if (!net->ipv6.seg6_fib_root) {
-		kfree(net->ipv6.seg6_hash);
-		return 1;
-	}
-
 	net->ipv6.seg6_hmac_table = kzalloc(255 *
 					    sizeof(*net->ipv6.seg6_hmac_table),
 					    GFP_KERNEL);
-	if (!net->ipv6.seg6_hmac_table) {
-		kfree(net->ipv6.seg6_fib_root);
-		kfree(net->ipv6.seg6_hash);
+	if (!net->ipv6.seg6_hmac_table)
 		return 1;
-	}
 
 	net->ipv6.seg6_bib_head = NULL;
-
-	net->ipv6.seg6_cache_hash = kzalloc(4096 *
-					    sizeof(*net->ipv6.seg6_cache_hash),
-					    GFP_KERNEL);
-	if (!net->ipv6.seg6_cache_hash) {
-		kfree(net->ipv6.seg6_hmac_table);
-		kfree(net->ipv6.seg6_fib_root);
-		kfree(net->ipv6.seg6_hash);
-		return 1;
-	}
-
-	for (i = 0; i < 4096; i++)
-		INIT_HLIST_HEAD(&net->ipv6.seg6_cache_hash[i]);
 
 	pr_info("SR-IPv6: Release v0.11\n");
 
@@ -887,9 +853,6 @@ static int __net_init seg6_init(struct net *net)
 
 static void __net_exit seg6_exit(struct net *net)
 {
-	seg6_flush_segments(net);
-	kfree(net->ipv6.seg6_hash);
-	kfree(net->ipv6.seg6_fib_root);
 	kfree(net->ipv6.seg6_hmac_table);
 }
 

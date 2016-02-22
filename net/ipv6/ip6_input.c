@@ -44,7 +44,6 @@
 #include <net/ip6_route.h>
 #include <net/addrconf.h>
 #include <net/xfrm.h>
-#include <net/seg6.h>
 #include <net/inet_ecn.h>
 #include <net/dst_metadata.h>
 

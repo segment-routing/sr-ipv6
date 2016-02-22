@@ -55,7 +55,6 @@
 #include <net/xfrm.h>
 #include <net/checksum.h>
 #include <linux/mroute6.h>
-#include <net/seg6.h>
 #include <net/l3mdev.h>
 
 static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *skb)
@@ -448,13 +447,6 @@ int ip6_forward(struct sk_buff *skb)
 					 IPSTATS_MIB_INDISCARDS);
 			goto drop;
 		}
-	}
-
-	/* apply srh if needed */
-	if (seg6_process_skb(net, skb)) {
-		skb_dst_drop(skb);
-		ip6_route_input(skb);
-		return dst_input(skb);
 	}
 
 	if (!xfrm6_route_forward(skb)) {

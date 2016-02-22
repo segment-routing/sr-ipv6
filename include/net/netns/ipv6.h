@@ -81,9 +81,6 @@ struct netns_ipv6 {
 	struct fib_rules_ops	*mr6_rules_ops;
 #endif
 #endif
-	struct hlist_head	*seg6_hash;
-	struct hlist_head	*seg6_cache_hash;
-	struct s6ib_node	*seg6_fib_root;
 	struct seg6_hmac_info	**seg6_hmac_table;
 	struct seg6_bib_node	*seg6_bib_head;
 	struct in6_addr		seg6_tun_src;
