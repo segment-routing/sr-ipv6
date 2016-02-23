@@ -391,6 +391,38 @@ static int seg6_genl_set_tunsrc(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 }
 
+static int seg6_genl_get_tunsrc(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	struct sk_buff *msg;
+	void *hdr;
+
+	msg = netlink_alloc_skb(info->dst_sk,
+				nlmsg_total_size(NLMSG_DEFAULT_SIZE),
+				info->snd_portid, GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_GET_TUNSRC);
+	if (!hdr)
+		goto free_msg;
+
+	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr),
+		    &net->ipv6.seg6_tun_src))
+		goto nla_put_failure;
+
+	genlmsg_end(msg, hdr);
+	genlmsg_reply(msg, info);
+
+	return 0;
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+free_msg:
+	nlmsg_free(msg);
+	return -ENOMEM;
+}
+
 static int seg6_genl_dumphmac(struct sk_buff *skb, struct genl_info *info)
 {
 	struct sk_buff *msg;
@@ -643,6 +675,12 @@ static struct genl_ops seg6_genl_ops[] = {
 		.cmd	= SEG6_CMD_SET_TUNSRC,
 		.doit	= seg6_genl_set_tunsrc,
 		.policy	= seg6_genl_policy,
+		.flags	= GENL_ADMIN_PERM,
+	},
+	{
+		.cmd	= SEG6_CMD_GET_TUNSRC,
+		.doit 	= seg6_genl_get_tunsrc,
+		.policy = seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},
 };
