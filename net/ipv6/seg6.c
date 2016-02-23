@@ -403,7 +403,8 @@ static int seg6_genl_get_tunsrc(struct sk_buff *skb, struct genl_info *info)
 	if (!msg)
 		return -ENOMEM;
 
-	hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_GET_TUNSRC);
+	hdr = genlmsg_put(msg, info->snd_portid, info->snd_seq,
+			  &seg6_genl_family, 0, SEG6_CMD_GET_TUNSRC);
 	if (!hdr)
 		goto free_msg;
 
@@ -423,59 +424,64 @@ free_msg:
 	return -ENOMEM;
 }
 
-static int seg6_genl_dumphmac(struct sk_buff *skb, struct genl_info *info)
+static int __seg6_hmac_fill_info(int keyid, struct seg6_hmac_info *hinfo,
+				 struct sk_buff *msg)
 {
-	struct sk_buff *msg;
-	struct nlattr *nla;
-	struct net *net = genl_info_net(info);
-	struct seg6_hmac_info *hinfo;
-	int i;
+	if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, keyid) ||
+	    nla_put_u8(msg, SEG6_ATTR_SECRETLEN, hinfo->slen) ||
+	    nla_put(msg, SEG6_ATTR_SECRET, hinfo->slen, hinfo->secret) ||
+	    nla_put_u8(msg, SEG6_ATTR_ALGID, hinfo->alg_id))
+		return -1;
+
+	return 0;
+}
+
+static int __seg6_genl_dumphmac_element(int keyid, struct seg6_hmac_info *hinfo,
+					u32 portid, u32 seq, u32 flags,
+					struct sk_buff *skb, u8 cmd)
+{
 	void *hdr;
 
+	hdr = genlmsg_put(skb, portid, seq, &seg6_genl_family, flags, cmd);
+	if (!hdr)
+		return -ENOMEM;
+
+	if (__seg6_hmac_fill_info(keyid, hinfo, skb) < 0)
+		goto nla_put_failure;
+
+	genlmsg_end(skb, hdr);
+	return 0;
+
+nla_put_failure:
+	genlmsg_cancel(skb, hdr);
+	return -EMSGSIZE;
+}
+
+static int seg6_genl_dumphmac(struct sk_buff *skb, struct netlink_callback *cb)
+{
+	struct net *net = sock_net(skb->sk);
+	struct seg6_hmac_info *hinfo;
+	int i, ret;
+
 	for (i = 0; i < 255; i++) {
+		if (i < cb->args[0])
+			continue;
+
 		hinfo = net->ipv6.seg6_hmac_table[i];
 		if (!hinfo)
 			continue;
 
-		msg = netlink_alloc_skb(info->dst_sk,
-					nlmsg_total_size(NLMSG_DEFAULT_SIZE),
-					info->snd_portid, GFP_KERNEL);
-		if (!msg)
-			return -ENOMEM;
-
-		hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0,
-				  SEG6_CMD_DUMPHMAC);
-		if (!hdr)
-			goto free_msg;
-
-		nla = nla_nest_start(msg, SEG6_ATTR_HMACINFO);
-		if (!nla)
-			goto nla_put_failure;
-
-		if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, i))
-			goto nla_put_failure;
-
-		if (nla_put_u8(msg, SEG6_ATTR_SECRETLEN, hinfo->slen))
-			goto nla_put_failure;
-
-		if (nla_put(msg, SEG6_ATTR_SECRET, hinfo->slen, hinfo->secret))
-			goto nla_put_failure;
-
-		if (nla_put_u8(msg, SEG6_ATTR_ALGID, hinfo->alg_id))
-			goto nla_put_failure;
-
-		nla_nest_end(msg, nla);
-		genlmsg_end(msg, hdr);
-		genlmsg_reply(msg, info);
+		ret = __seg6_genl_dumphmac_element(i, hinfo,
+						   NETLINK_CB(cb->skb).portid,
+						   cb->nlh->nlmsg_seq,
+						   NLM_F_MULTI,
+						   skb, SEG6_CMD_DUMPHMAC);
+		if (ret)
+			break;
 	}
 
-	return 0;
-
-nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-free_msg:
-	nlmsg_free(msg);
-	return -ENOMEM;
+	cb->args[0] = i;
+	return skb->len;
 }
 
 static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
@@ -567,65 +573,61 @@ static int seg6_genl_flushbind(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 }
 
-static int __seg6_genl_dumpbind_element(struct genl_info *info,
-					struct seg6_bib_node *bib)
+static int __seg6_bind_fill_info(struct seg6_bib_node *bib,
+				 struct sk_buff *msg)
 {
-	struct sk_buff *msg;
-	struct nlattr *nla;
+	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr),
+		    &bib->segment) ||
+	    nla_put(msg, SEG6_ATTR_BIND_DATA, bib->datalen, bib->data) ||
+	    nla_put_s32(msg, SEG6_ATTR_BIND_DATALEN, bib->datalen) ||
+	    nla_put_u8(msg, SEG6_ATTR_BIND_OP, bib->op))
+		return -1;
+
+	return 0;
+}
+
+static int __seg6_genl_dumpbind_element(struct seg6_bib_node *bib, u32 portid,
+					u32 seq, u32 flags, struct sk_buff *skb,
+					u8 cmd)
+{
 	void *hdr;
 
-	msg = netlink_alloc_skb(info->dst_sk,
-				nlmsg_total_size(NLMSG_DEFAULT_SIZE),
-				info->snd_portid, GFP_KERNEL);
-	if (!msg)
+	hdr = genlmsg_put(skb, portid, seq, &seg6_genl_family, flags, cmd);
+	if (!hdr)
 		return -ENOMEM;
 
-	hdr = genlmsg_put(msg, 0, 0, &seg6_genl_family, 0, SEG6_CMD_DUMPBIND);
-	if (!hdr)
-		goto free_msg;
-
-	nla = nla_nest_start(msg, SEG6_ATTR_BINDINFO);
-	if (!nla)
+	if (__seg6_bind_fill_info(bib, skb) < 0)
 		goto nla_put_failure;
 
-	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), &bib->segment))
-		goto nla_put_failure;
-
-	if (nla_put(msg, SEG6_ATTR_BIND_DATA, bib->datalen, bib->data))
-		goto nla_put_failure;
-
-	if (nla_put_s32(msg, SEG6_ATTR_BIND_DATALEN, bib->datalen))
-		goto nla_put_failure;
-
-	if (nla_put_u8(msg, SEG6_ATTR_BIND_OP, bib->op))
-		goto nla_put_failure;
-
-	nla_nest_end(msg, nla);
-	genlmsg_end(msg, hdr);
-	genlmsg_reply(msg, info);
-
+	genlmsg_end(skb, hdr);
 	return 0;
 
 nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-free_msg:
-	nlmsg_free(msg);
-	return -ENOMEM;
+	genlmsg_cancel(skb, hdr);
+	return -EMSGSIZE;
 }
 
-static int seg6_genl_dumpbind(struct sk_buff *skb, struct genl_info *info)
+static int seg6_genl_dumpbind(struct sk_buff *skb, struct netlink_callback *cb)
 {
-	struct net *net = genl_info_net(info);
+	struct net *net = sock_net(skb->sk);
 	struct seg6_bib_node *bib;
-	int err;
+	int idx = 0, ret;
 
 	for (bib = net->ipv6.seg6_bib_head; bib; bib = bib->next) {
-		err = __seg6_genl_dumpbind_element(info, bib);
-		if (err)
-			return err;
+		if (idx++ < cb->args[0])
+			continue;
+
+		ret = __seg6_genl_dumpbind_element(bib,
+						   NETLINK_CB(cb->skb).portid,
+						   cb->nlh->nlmsg_seq,
+						   NLM_F_MULTI, skb,
+						   SEG6_CMD_DUMPBIND);
+		if (ret)
+			break;
 	}
 
-	return 0;
+	cb->args[0] = idx;
+	return skb->len;
 }
 
 static struct genl_ops seg6_genl_ops[] = {
@@ -637,7 +639,7 @@ static struct genl_ops seg6_genl_ops[] = {
 	},
 	{
 		.cmd	= SEG6_CMD_DUMPHMAC,
-		.doit	= seg6_genl_dumphmac,
+		.dumpit	= seg6_genl_dumphmac,
 		.policy	= seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},
@@ -661,7 +663,7 @@ static struct genl_ops seg6_genl_ops[] = {
 	},
 	{
 		.cmd	= SEG6_CMD_DUMPBIND,
-		.doit	= seg6_genl_dumpbind,
+		.dumpit	= seg6_genl_dumpbind,
 		.policy	= seg6_genl_policy,
 		.flags	= GENL_ADMIN_PERM,
 	},
