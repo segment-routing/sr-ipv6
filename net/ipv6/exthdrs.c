@@ -482,8 +482,14 @@ looped_back:
 			return -1;
 		}
 		ipv6_hdr(skb)->hop_limit--;
-		skb_pull(skb, sizeof(struct ipv6hdr));
-		goto looped_back;
+
+		/* be sure that srh is still present before reinjecting */
+		if (!cleanup) {
+			skb_pull(skb, sizeof(struct ipv6hdr));
+			goto looped_back;
+		}
+		skb_set_transport_header(skb, sizeof(struct ipv6hdr));
+		IP6CB(skb)->nhoff = offsetof(struct ipv6hdr, nexthdr);
 	}
 
 	dst_input(skb);
