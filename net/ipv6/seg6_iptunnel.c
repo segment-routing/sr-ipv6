@@ -137,7 +137,7 @@ static int seg6_do_srh_encap(struct sk_buff *skb, struct ipv6_sr_hdr *osrh)
 
 static int seg6_do_srh_inline(struct sk_buff *skb, struct ipv6_sr_hdr *osrh)
 {
-	struct ipv6hdr *hdr;
+	struct ipv6hdr *hdr, *oldhdr;
 	struct ipv6_sr_hdr *isrh;
 	struct net *net = dev_net(skb_dst(skb)->dev);
 	int hdrlen, err;
@@ -150,14 +150,16 @@ static int seg6_do_srh_inline(struct sk_buff *skb, struct ipv6_sr_hdr *osrh)
 		return err;
 	}
 
+	oldhdr = ipv6_hdr(skb);
+
 	skb_push(skb, hdrlen);
-
-	memmove(skb->data, skb_network_header(skb), sizeof(*hdr));
-
 	skb_reset_network_header(skb);
 	skb_mac_header_rebuild(skb);
 
 	hdr = ipv6_hdr(skb);
+
+	memmove(hdr, oldhdr, sizeof(*hdr));
+
 	isrh = (void *)hdr + sizeof(*hdr);
 	memcpy(isrh, osrh, hdrlen);
 
