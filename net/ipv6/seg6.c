@@ -299,6 +299,8 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	u8 algid;
 	u8 slen;
 	struct seg6_hmac_info *hinfo;
+	int err = 0;
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
 
 	if (!info->attrs[SEG6_ATTR_HMACKEYID] ||
 	    !info->attrs[SEG6_ATTR_SECRETLEN] ||
@@ -312,27 +314,39 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	if (hmackeyid == 0)
 		return -EINVAL;
 
-	hinfo = rcu_dereference(seg6_pernet(net)->hmac_table[hmackeyid]);
+	spin_lock(&sdata->hmac_lock);
+
+	hinfo = sdata->hmac_table[hmackeyid];
 
 	if (!slen) {
-		if (seg6_hmac_del_info(net, hmackeyid, hinfo))
-			return -ENOENT;
-		kfree(hinfo);
-		return 0;
+		if (!hinfo || seg6_hmac_del_info(net, hmackeyid, hinfo)) {
+			err = -ENOENT;
+		} else {
+			kfree(hinfo);
+		}
+		goto out_unlock;
 	}
 
-	if (!info->attrs[SEG6_ATTR_SECRET])
-		return -EINVAL;
+	if (!info->attrs[SEG6_ATTR_SECRET]) {
+		err = -EINVAL;
+		goto out_unlock;
+	}
+
+	if (hinfo) {
+		if (seg6_hmac_del_info(net, hmackeyid, hinfo)) {
+			err = -ENOENT;
+			goto out_unlock;
+		}
+		kfree(hinfo);
+	}
 
 	secret = (char *)nla_data(info->attrs[SEG6_ATTR_SECRET]);
 
-	if (!hinfo)
-		hinfo = kzalloc(sizeof(*hinfo), GFP_KERNEL);
-	else
-		seg6_hmac_del_info(net, hmackeyid, hinfo);
-
-	if (!hinfo)
-		return -ENOMEM;
+	hinfo = kzalloc(sizeof(*hinfo), GFP_KERNEL);
+	if (!hinfo) {
+		err = -ENOMEM;
+		goto out_unlock;
+	}
 
 	memcpy(hinfo->secret, secret, slen);
 	hinfo->slen = slen;
@@ -340,7 +354,9 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 
 	seg6_hmac_add_info(net, hmackeyid, hinfo);
 
-	return 0;
+out_unlock:
+	spin_unlock(&sdata->hmac_lock);
+	return err;
 }
 
 static int seg6_genl_set_tunsrc(struct sk_buff *skb, struct genl_info *info)
@@ -430,6 +446,7 @@ static int seg6_genl_dumphmac(struct sk_buff *skb, struct netlink_callback *cb)
 	struct seg6_hmac_info *hinfo;
 	int i, ret;
 
+	rcu_read_lock();
 	for (i = 0; i < 255; i++) {
 		if (i < cb->args[0])
 			continue;
@@ -446,6 +463,7 @@ static int seg6_genl_dumphmac(struct sk_buff *skb, struct netlink_callback *cb)
 		if (ret)
 			break;
 	}
+	rcu_read_unlock();
 
 	cb->args[0] = i;
 	return skb->len;
@@ -698,6 +716,8 @@ static int __net_init seg6_net_init(struct net *net)
 	sdata = seg6_pernet(net);
 	if (!sdata)
 		return -ENOMEM;
+
+	spin_lock_init(&sdata->hmac_lock);
 
 	return 0;
 }

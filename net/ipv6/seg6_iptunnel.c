@@ -64,15 +64,17 @@ static int __push_hmac(struct net *net, struct in6_addr *saddr,
 	struct seg6_hmac_info *hinfo;
 	int err;
 
+	rcu_read_lock();
+
 	hinfo = rcu_dereference(seg6_pernet(net)->hmac_table[srh->hmackeyid]);
 	key = hinfo ? hinfo->secret : seg6_hmac_key;
 	keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
 
-	if (unlikely((err = sr_hmac_sha1(key, keylen, srh, saddr,
-					 (u32 *)SEG6_HMAC(srh)))))
-		return err;
+	err = sr_hmac_sha1(key, keylen, srh, saddr, (u32 *)SEG6_HMAC(srh));
 
-	return 0;
+	rcu_read_unlock();
+
+	return err;
 }
 
 static void __set_tun_src(struct net *net, struct net_device *dev,

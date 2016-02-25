@@ -913,6 +913,7 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 			struct seg6_hmac_info *hinfo;
 			struct seg6_pernet_data *sdata = seg6_pernet(net);
 
+			rcu_read_lock();
 			hinfo = rcu_dereference(sdata->hmac_table[hmackeyid]);
 			key = hinfo ? hinfo->secret : seg6_hmac_key;
 			keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
@@ -920,6 +921,7 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 			memset(SEG6_HMAC(sr_phdr), 0, 32);
 			sr_hmac_sha1(key, keylen, sr_phdr, saddr,
 				     (u32 *)SEG6_HMAC(sr_phdr));
+			rcu_read_unlock();
 		}
 
 		sr_phdr->nexthdr = *proto;

@@ -58,6 +58,7 @@ struct seg6_bib_node {
 
 struct seg6_pernet_data {
 	struct seg6_hmac_info __rcu *hmac_table[SEG6_MAX_HMAC_KEY];
+	spinlock_t hmac_lock;
 	struct seg6_bib_node *bib_head;
 	struct in6_addr tun_src;
 };
