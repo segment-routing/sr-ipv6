@@ -22,6 +22,7 @@
 #include <linux/route.h>
 #include <linux/seg6.h>
 #include <net/lwtunnel.h>
+#include <net/seg6_hmac.h>
 
 struct seg6_info;
 
@@ -55,6 +56,12 @@ struct seg6_bib_node {
 	 */
 };
 
+struct seg6_pernet_data {
+	struct seg6_hmac_info __rcu *hmac_table[SEG6_MAX_HMAC_KEY];
+	struct seg6_bib_node *bib_head;
+	struct in6_addr tun_src;
+};
+
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
 
@@ -77,6 +84,11 @@ static inline int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
 static inline struct seg6_iptunnel_encap *seg6_lwtunnel_encap(struct lwtunnel_state *lwtstate)
 {
 	return (struct seg6_iptunnel_encap *)lwtstate->data;
+}
+
+static inline struct seg6_pernet_data *seg6_pernet(struct net *net)
+{
+	return net->ipv6.seg6_data;
 }
 
 #endif

@@ -63,8 +63,9 @@ static void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src,
 struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment)
 {
 	struct seg6_bib_node *tmp;
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
 
-	for (tmp = net->ipv6.seg6_bib_head; tmp; tmp = tmp->next) {
+	for (tmp = sdata->bib_head; tmp; tmp = tmp->next) {
 		if (memcmp(&tmp->segment, segment, 16) == 0)
 			return tmp;
 	}
@@ -75,13 +76,14 @@ struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment)
 int seg6_bib_insert(struct net *net, struct seg6_bib_node *bib)
 {
 	struct seg6_bib_node *tmp;
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
 
-	if (!net->ipv6.seg6_bib_head) {
-		net->ipv6.seg6_bib_head = bib;
+	if (!sdata->bib_head) {
+		sdata->bib_head = bib;
 		return 0;
 	}
 
-	for (tmp = net->ipv6.seg6_bib_head; tmp; tmp = tmp->next) {
+	for (tmp = sdata->bib_head; tmp; tmp = tmp->next) {
 		if (memcmp(&tmp->segment, &bib->segment, 16) == 0)
 			return -EEXIST;
 
@@ -97,13 +99,14 @@ int seg6_bib_insert(struct net *net, struct seg6_bib_node *bib)
 int seg6_bib_remove(struct net *net, struct in6_addr *addr)
 {
 	struct seg6_bib_node *tmp, *prev = NULL;
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
 
-	for (tmp = net->ipv6.seg6_bib_head; tmp; tmp = tmp->next) {
+	for (tmp = sdata->bib_head; tmp; tmp = tmp->next) {
 		if (memcmp(&tmp->segment, addr, 16) == 0) {
 			if (prev)
 				prev->next = tmp->next;
 			else
-				net->ipv6.seg6_bib_head = tmp->next;
+				sdata->bib_head = tmp->next;
 			return 1;
 		}
 		prev = tmp;
@@ -309,13 +312,12 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	if (hmackeyid == 0)
 		return -EINVAL;
 
-	hinfo = net->ipv6.seg6_hmac_table[hmackeyid];
+	hinfo = rcu_dereference(seg6_pernet(net)->hmac_table[hmackeyid]);
 
 	if (!slen) {
-		if (!hinfo)
+		if (seg6_hmac_del_info(net, hmackeyid, hinfo))
 			return -ENOENT;
 		kfree(hinfo);
-		net->ipv6.seg6_hmac_table[hmackeyid] = NULL;
 		return 0;
 	}
 
@@ -326,6 +328,8 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 
 	if (!hinfo)
 		hinfo = kzalloc(sizeof(*hinfo), GFP_KERNEL);
+	else
+		seg6_hmac_del_info(net, hmackeyid, hinfo);
 
 	if (!hinfo)
 		return -ENOMEM;
@@ -334,7 +338,7 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	hinfo->slen = slen;
 	hinfo->alg_id = algid;
 
-	net->ipv6.seg6_hmac_table[hmackeyid] = hinfo;
+	seg6_hmac_add_info(net, hmackeyid, hinfo);
 
 	return 0;
 }
@@ -349,7 +353,7 @@ static int seg6_genl_set_tunsrc(struct sk_buff *skb, struct genl_info *info)
 
 	tunsrc = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
 
-	memcpy(&net->ipv6.seg6_tun_src, tunsrc, sizeof(struct in6_addr));
+	memcpy(&seg6_pernet(net)->tun_src, tunsrc, sizeof(struct in6_addr));
 
 	return 0;
 }
@@ -372,7 +376,7 @@ static int seg6_genl_get_tunsrc(struct sk_buff *skb, struct genl_info *info)
 		goto free_msg;
 
 	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr),
-		    &net->ipv6.seg6_tun_src))
+		    &seg6_pernet(net)->tun_src))
 		goto nla_put_failure;
 
 	genlmsg_end(msg, hdr);
@@ -430,7 +434,7 @@ static int seg6_genl_dumphmac(struct sk_buff *skb, struct netlink_callback *cb)
 		if (i < cb->args[0])
 			continue;
 
-		hinfo = net->ipv6.seg6_hmac_table[i];
+		hinfo = rcu_dereference(seg6_pernet(net)->hmac_table[i]);
 		if (!hinfo)
 			continue;
 
@@ -528,8 +532,8 @@ static int seg6_genl_flushbind(struct sk_buff *skb, struct genl_info *info)
 	struct net *net = genl_info_net(info);
 	struct seg6_bib_node *bib;
 
-	while ((bib = net->ipv6.seg6_bib_head)) {
-		net->ipv6.seg6_bib_head = bib->next;
+	while ((bib = seg6_pernet(net)->bib_head)) {
+		seg6_pernet(net)->bib_head = bib->next;
 		kfree(bib);
 	}
 
@@ -576,7 +580,7 @@ static int seg6_genl_dumpbind(struct sk_buff *skb, struct netlink_callback *cb)
 	struct seg6_bib_node *bib;
 	int idx = 0, ret;
 
-	for (bib = net->ipv6.seg6_bib_head; bib; bib = bib->next) {
+	for (bib = seg6_pernet(net)->bib_head; bib; bib = bib->next) {
 		if (idx++ < cb->args[0])
 			continue;
 
@@ -686,20 +690,21 @@ static struct ctl_table_header *seg6_table_hdr;
 
 static int __net_init seg6_net_init(struct net *net)
 {
-	net->ipv6.seg6_hmac_table = kzalloc(255 *
-					    sizeof(*net->ipv6.seg6_hmac_table),
-					    GFP_KERNEL);
-	if (!net->ipv6.seg6_hmac_table)
-		return -ENOMEM;
+	struct seg6_pernet_data *sdata;
 
-	net->ipv6.seg6_bib_head = NULL;
+	net->ipv6.seg6_data = kzalloc(sizeof(struct seg6_pernet_data),
+				      GFP_KERNEL);
+
+	sdata = seg6_pernet(net);
+	if (!sdata)
+		return -ENOMEM;
 
 	return 0;
 }
 
 static void __net_exit seg6_net_exit(struct net *net)
 {
-	kfree(net->ipv6.seg6_hmac_table);
+	kfree(seg6_pernet(net));
 }
 
 static struct pernet_operations ip6_segments_ops = {

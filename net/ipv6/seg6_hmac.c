@@ -155,3 +155,28 @@ int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
 	return 0;
 }
 EXPORT_SYMBOL(sr_hmac_sha1);
+
+int seg6_hmac_add_info(struct net *net, int key,
+		       const struct seg6_hmac_info *hinfo)
+{
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
+
+	return !cmpxchg((const struct seg6_hmac_info **)&sdata->hmac_table[key],
+			NULL, hinfo) ? 0 : -1;
+}
+EXPORT_SYMBOL(seg6_hmac_add_info);
+
+int seg6_hmac_del_info(struct net *net, int key,
+		       const struct seg6_hmac_info *hinfo)
+{
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	int ret;
+
+	ret = (cmpxchg((const struct seg6_hmac_info **)&sdata->hmac_table[key],
+		       hinfo, NULL) == hinfo) ? 0 : -1;
+
+	synchronize_net();
+
+	return ret;
+}
+EXPORT_SYMBOL(seg6_hmac_del_info);

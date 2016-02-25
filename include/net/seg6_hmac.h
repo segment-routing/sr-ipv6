@@ -25,6 +25,8 @@
 #define SEG6_HMAC(s) ((s)->segments+SEG6_SRH_SEGSIZE(s))
 #define SEG6_HMAC_MAX_SIZE  64
 
+#define SEG6_MAX_HMAC_KEY 256
+
 struct seg6_hmac_info {
 	char secret[SEG6_HMAC_MAX_SIZE];
 	u8 slen;
@@ -34,5 +36,10 @@ struct seg6_hmac_info {
 extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
 			struct in6_addr *saddr, u32 *output);
 extern char seg6_hmac_key[];
+
+extern int seg6_hmac_add_info(struct net *net, int key,
+			      const struct seg6_hmac_info *hinfo);
+extern int seg6_hmac_del_info(struct net *net, int key,
+			      const struct seg6_hmac_info *hinfo);
 
 #endif

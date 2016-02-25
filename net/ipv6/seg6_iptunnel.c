@@ -64,7 +64,7 @@ static int __push_hmac(struct net *net, struct in6_addr *saddr,
 	struct seg6_hmac_info *hinfo;
 	int err;
 
-	hinfo = net->ipv6.seg6_hmac_table[srh->hmackeyid];
+	hinfo = rcu_dereference(seg6_pernet(net)->hmac_table[srh->hmackeyid]);
 	key = hinfo ? hinfo->secret : seg6_hmac_key;
 	keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
 
@@ -78,8 +78,8 @@ static int __push_hmac(struct net *net, struct in6_addr *saddr,
 static void __set_tun_src(struct net *net, struct net_device *dev,
 			  struct in6_addr *daddr, struct in6_addr *saddr)
 {
-	if (!ipv6_addr_any(&net->ipv6.seg6_tun_src)) {
-		memcpy(saddr, &net->ipv6.seg6_tun_src, sizeof(struct in6_addr));
+	if (!ipv6_addr_any(&seg6_pernet(net)->tun_src)) {
+		memcpy(saddr, &seg6_pernet(net)->tun_src, sizeof(struct in6_addr));
 	} else {
 		ipv6_dev_get_saddr(net, dev, daddr, IPV6_PREFER_SRC_PUBLIC,
 				   saddr);

@@ -308,6 +308,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	struct seg6_hmac_info *hinfo;
 	struct seg6_bib_node *bib_node;
 	struct in6_addr *neigh_rt = NULL;
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
 
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
@@ -339,7 +340,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 			return -1;
 		}
 
-		hinfo = net->ipv6.seg6_hmac_table[hmac_key_id];
+		hinfo = rcu_dereference(sdata->hmac_table[hmac_key_id]);
 
 		if (!hinfo && seg6_hmac_strict_key) {
 			pr_debug("SR-IPv6: hmac_strict_key is set and no key found for keyid 0x%x\n", hmac_key_id);
@@ -910,8 +911,9 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 			char *key;
 			int keylen;
 			struct seg6_hmac_info *hinfo;
+			struct seg6_pernet_data *sdata = seg6_pernet(net);
 
-			hinfo = net->ipv6.seg6_hmac_table[hmackeyid];
+			hinfo = rcu_dereference(sdata->hmac_table[hmackeyid]);
 			key = hinfo ? hinfo->secret : seg6_hmac_key;
 			keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
 
