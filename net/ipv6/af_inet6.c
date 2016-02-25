@@ -61,7 +61,6 @@
 #include <net/ip6_tunnel.h>
 #endif
 #include <net/seg6.h>
-#include <net/seg6_hmac.h>
 
 #include <asm/uaccess.h>
 #include <linux/mroute6.h>
@@ -836,31 +835,6 @@ static const struct ipv6_stub ipv6_stub_impl = {
 	.nd_tbl	= &nd_tbl,
 };
 
-static int __net_init seg6_init(struct net *net)
-{
-	net->ipv6.seg6_hmac_table = kzalloc(255 *
-					    sizeof(*net->ipv6.seg6_hmac_table),
-					    GFP_KERNEL);
-	if (!net->ipv6.seg6_hmac_table)
-		return 1;
-
-	net->ipv6.seg6_bib_head = NULL;
-
-	pr_info("SR-IPv6: Release v0.11\n");
-
-	return 0;
-}
-
-static void __net_exit seg6_exit(struct net *net)
-{
-	kfree(net->ipv6.seg6_hmac_table);
-}
-
-static struct pernet_operations ip6_segments_ops = {
-        .init = seg6_init,
-        .exit = seg6_exit,
-};
-
 static int __init inet6_init(void)
 {
 	struct list_head *r;
@@ -998,10 +972,8 @@ static int __init inet6_init(void)
 	err = ipv6_sysctl_register();
 	if (err)
 		goto sysctl_fail;
-	seg6_init_sysctl();
 #endif
-	seg6_nl_init();
-	err = register_pernet_subsys(&ip6_segments_ops);
+	err = seg6_init();
 	if (err)
 		goto seg6_fail;
 out:

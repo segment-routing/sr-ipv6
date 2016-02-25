@@ -25,11 +25,7 @@
 
 struct seg6_info;
 
-extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
-			struct in6_addr *saddr, u32 *output);
-
-extern void seg6_init_sysctl(void);
-extern void seg6_nl_init(void);
+extern int __init seg6_init(void);
 
 extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from,
 			struct ipv6_sr_hdr *hdr_to, int reverse);

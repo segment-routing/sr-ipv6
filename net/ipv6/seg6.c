@@ -133,43 +133,6 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to,
 	memset(hdr_to->segments, 0x42, sizeof(struct in6_addr));
 }
 
-static struct ctl_table seg6_table[] = {
-	{
-		.procname	= "hmac_key",
-		.data		= seg6_hmac_key,
-		.maxlen		= SEG6_HMAC_MAX_SIZE,
-		.mode		= 0644,
-		.proc_handler	= proc_dostring,
-	},
-	{
-		.procname	= "srh_reversal",
-		.data		= &seg6_srh_reversal,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec
-	},
-	{
-		.procname	= "hmac_strict_key",
-		.data		= &seg6_hmac_strict_key,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec
-	},
-	{
-		.procname	= "enabled",
-		.data		= &seg6_enabled,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec
-	},
-	{ }
-};
-
-void __net_init seg6_init_sysctl(void)
-{
-	register_net_sysctl(&init_net, "net/seg6", seg6_table);
-}
-
 static struct nla_policy seg6_genl_policy[SEG6_ATTR_MAX + 1] = {
 	[SEG6_ATTR_DST]				= { .type = NLA_BINARY,
 		.len = sizeof(struct in6_addr) },
@@ -687,7 +650,96 @@ static struct genl_ops seg6_genl_ops[] = {
 	},
 };
 
-void __net_init seg6_nl_init(void)
+static struct ctl_table seg6_table[] = {
+	{
+		.procname	= "hmac_key",
+		.data		= seg6_hmac_key,
+		.maxlen		= SEG6_HMAC_MAX_SIZE,
+		.mode		= 0644,
+		.proc_handler	= proc_dostring,
+	},
+	{
+		.procname	= "srh_reversal",
+		.data		= &seg6_srh_reversal,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
+	},
+	{
+		.procname	= "hmac_strict_key",
+		.data		= &seg6_hmac_strict_key,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
+	},
+	{
+		.procname	= "enabled",
+		.data		= &seg6_enabled,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec
+	},
+	{ }
+};
+
+static struct ctl_table_header *seg6_table_hdr;
+
+static int __net_init seg6_net_init(struct net *net)
 {
-	genl_register_family_with_ops(&seg6_genl_family, seg6_genl_ops);
+	net->ipv6.seg6_hmac_table = kzalloc(255 *
+					    sizeof(*net->ipv6.seg6_hmac_table),
+					    GFP_KERNEL);
+	if (!net->ipv6.seg6_hmac_table)
+		return -ENOMEM;
+
+	net->ipv6.seg6_bib_head = NULL;
+
+	return 0;
+}
+
+static void __net_exit seg6_net_exit(struct net *net)
+{
+	kfree(net->ipv6.seg6_hmac_table);
+}
+
+static struct pernet_operations ip6_segments_ops = {
+	.init = seg6_net_init,
+	.exit = seg6_net_exit,
+};
+
+int __init seg6_init(void)
+{
+	int err = -ENOMEM;
+
+#ifdef CONFIG_SYSCTL
+	seg6_table_hdr = register_net_sysctl(&init_net, "net/seg6", seg6_table);
+	if (!seg6_table_hdr)
+		goto out;
+#endif
+	err = genl_register_family_with_ops(&seg6_genl_family, seg6_genl_ops);
+	if (err)
+		goto out_unregister_sysctl;
+	err = register_pernet_subsys(&ip6_segments_ops);
+	if (err)
+		goto out_unregister_genl;
+
+	pr_info("SR-IPv6: Release v0.11\n");
+out:
+	return err;
+out_unregister_genl:
+	genl_unregister_family(&seg6_genl_family);
+out_unregister_sysctl:
+#ifdef CONFIG_SYSCTL
+	unregister_net_sysctl_table(seg6_table_hdr);
+#endif
+	goto out;
+}
+
+void seg6_exit(void)
+{
+	unregister_pernet_subsys(&ip6_segments_ops);
+	genl_unregister_family(&seg6_genl_family);
+#ifdef CONFIG_SYSCTL
+	unregister_net_sysctl_table(seg6_table_hdr);
+#endif
 }
