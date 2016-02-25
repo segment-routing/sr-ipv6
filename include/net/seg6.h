@@ -57,10 +57,10 @@ struct seg6_bib_node {
 };
 
 struct seg6_pernet_data {
+	spinlock_t lock;
 	struct seg6_hmac_info __rcu *hmac_table[SEG6_MAX_HMAC_KEY];
-	spinlock_t hmac_lock;
 	struct seg6_bib_node *bib_head;
-	struct in6_addr tun_src;
+	struct in6_addr __rcu *tun_src;
 };
 
 extern int seg6_srh_reversal;
@@ -90,6 +90,16 @@ static inline struct seg6_iptunnel_encap *seg6_lwtunnel_encap(struct lwtunnel_st
 static inline struct seg6_pernet_data *seg6_pernet(struct net *net)
 {
 	return net->ipv6.seg6_data;
+}
+
+static inline void seg6_pernet_lock(struct net *net)
+{
+	spin_lock(&seg6_pernet(net)->lock);
+}
+
+static inline void seg6_pernet_unlock(struct net *net)
+{
+	spin_unlock(&seg6_pernet(net)->lock);
 }
 
 #endif

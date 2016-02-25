@@ -314,7 +314,7 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	if (hmackeyid == 0)
 		return -EINVAL;
 
-	spin_lock(&sdata->hmac_lock);
+	seg6_pernet_lock(net);
 
 	hinfo = sdata->hmac_table[hmackeyid];
 
@@ -355,21 +355,31 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	seg6_hmac_add_info(net, hmackeyid, hinfo);
 
 out_unlock:
-	spin_unlock(&sdata->hmac_lock);
+	seg6_pernet_unlock(net);
 	return err;
 }
 
 static int seg6_genl_set_tunsrc(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
-	struct in6_addr *tunsrc;
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	struct in6_addr *val, *t_old, *t_new;
 
 	if (!info->attrs[SEG6_ATTR_DST])
 		return -EINVAL;
 
-	tunsrc = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
+	val = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
+	t_new = kmemdup(val, sizeof(*val), GFP_KERNEL);
 
-	memcpy(&seg6_pernet(net)->tun_src, tunsrc, sizeof(struct in6_addr));
+	seg6_pernet_lock(net);
+
+	t_old = sdata->tun_src;
+	rcu_assign_pointer(sdata->tun_src, t_new);
+
+	synchronize_net();
+	kfree(t_old);
+
+	seg6_pernet_unlock(net);
 
 	return 0;
 }
@@ -379,6 +389,7 @@ static int seg6_genl_get_tunsrc(struct sk_buff *skb, struct genl_info *info)
 	struct net *net = genl_info_net(info);
 	struct sk_buff *msg;
 	void *hdr;
+	struct in6_addr *tun_src;
 
 	msg = netlink_alloc_skb(info->dst_sk,
 				nlmsg_total_size(NLMSG_DEFAULT_SIZE),
@@ -391,9 +402,13 @@ static int seg6_genl_get_tunsrc(struct sk_buff *skb, struct genl_info *info)
 	if (!hdr)
 		goto free_msg;
 
-	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr),
-		    &seg6_pernet(net)->tun_src))
+	rcu_read_lock();
+	tun_src = rcu_dereference(seg6_pernet(net)->tun_src);
+
+	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr), tun_src))
 		goto nla_put_failure;
+
+	rcu_read_unlock();
 
 	genlmsg_end(msg, hdr);
 	genlmsg_reply(msg, info);
@@ -401,6 +416,7 @@ static int seg6_genl_get_tunsrc(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 
 nla_put_failure:
+	rcu_read_unlock();
 	genlmsg_cancel(msg, hdr);
 free_msg:
 	nlmsg_free(msg);
@@ -717,7 +733,9 @@ static int __net_init seg6_net_init(struct net *net)
 	if (!sdata)
 		return -ENOMEM;
 
-	spin_lock_init(&sdata->hmac_lock);
+	spin_lock_init(&sdata->lock);
+
+	sdata->tun_src = kzalloc(sizeof(struct in6_addr), GFP_KERNEL);
 
 	return 0;
 }
