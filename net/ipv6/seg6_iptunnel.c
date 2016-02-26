@@ -230,8 +230,15 @@ int seg6_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 	struct ipv6hdr *hdr;
 	struct flowi6 fl6;
 
+	if (likely(!skb->encapsulation)) {
+		skb_reset_inner_headers(skb);
+		skb->encapsulation = 1;
+	}
+
 	if ((unlikely(err = seg6_do_srh(skb))))
 		return err;
+
+	skb_set_inner_protocol(skb, skb->protocol);
 
 	hdr = ipv6_hdr(skb);
 	fl6.daddr = hdr->daddr;
