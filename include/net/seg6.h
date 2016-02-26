@@ -31,17 +31,17 @@ extern int __init seg6_init(void);
 extern void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from,
 			struct ipv6_sr_hdr *hdr_to, int reverse);
 
-extern struct seg6_bib_node *seg6_bib_lookup(struct net *net,
-			struct in6_addr *segment);
+extern struct seg6_action *seg6_action_lookup(struct net *net,
+					      struct in6_addr *segment);
 
-extern int seg6_bib_remove(struct net *net, struct in6_addr *addr);
 extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb,
-			void *bib_data);
+			void *act_data);
 
 #define SEG6_SRH_SEGSIZE(srh) ((srh)->first_segment + 1)
 
-struct seg6_bib_node {
-	struct seg6_bib_node *next;
+struct seg6_action {
+	struct list_head list;
+
 	struct in6_addr segment;
 
 	int op;
@@ -59,7 +59,7 @@ struct seg6_bib_node {
 struct seg6_pernet_data {
 	spinlock_t lock;
 	struct seg6_hmac_info __rcu *hmac_table[SEG6_MAX_HMAC_KEY];
-	struct seg6_bib_node *bib_head;
+	struct list_head actions;
 	struct in6_addr __rcu *tun_src;
 };
 

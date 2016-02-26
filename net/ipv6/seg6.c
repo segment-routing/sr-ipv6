@@ -60,59 +60,52 @@ static void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src,
 		memcpy(&dst[size - i - 1], &src[i], sizeof(struct in6_addr));
 }
 
-struct seg6_bib_node *seg6_bib_lookup(struct net *net, struct in6_addr *segment)
+/* called with rcu_read_lock() */
+struct seg6_action *seg6_action_lookup(struct net *net,
+				       struct in6_addr *segment)
 {
-	struct seg6_bib_node *tmp;
 	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	struct seg6_action *act;
 
-	for (tmp = sdata->bib_head; tmp; tmp = tmp->next) {
-		if (memcmp(&tmp->segment, segment, 16) == 0)
-			return tmp;
+	list_for_each_entry_rcu(act, &sdata->actions, list) {
+		if (memcmp(&act->segment, segment, 16) == 0)
+			return act;
 	}
 
 	return NULL;
 }
 
-int seg6_bib_insert(struct net *net, struct seg6_bib_node *bib)
+void seg6_action_add(struct net *net, struct seg6_action *act)
 {
-	struct seg6_bib_node *tmp;
 	struct seg6_pernet_data *sdata = seg6_pernet(net);
 
-	if (!sdata->bib_head) {
-		sdata->bib_head = bib;
-		return 0;
-	}
-
-	for (tmp = sdata->bib_head; tmp; tmp = tmp->next) {
-		if (memcmp(&tmp->segment, &bib->segment, 16) == 0)
-			return -EEXIST;
-
-		if (!tmp->next) {
-			tmp->next = bib;
-			break;
-		}
-	}
-
-	return 0;
+	seg6_pernet_lock(net);
+	list_add_rcu(&act->list, &sdata->actions);
+	seg6_pernet_unlock(net);
 }
 
-int seg6_bib_remove(struct net *net, struct in6_addr *addr)
+int seg6_action_del(struct net *net, struct in6_addr *dst)
 {
-	struct seg6_bib_node *tmp, *prev = NULL;
-	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	struct seg6_action *act;
+	int err = 0;
 
-	for (tmp = sdata->bib_head; tmp; tmp = tmp->next) {
-		if (memcmp(&tmp->segment, addr, 16) == 0) {
-			if (prev)
-				prev->next = tmp->next;
-			else
-				sdata->bib_head = tmp->next;
-			return 1;
-		}
-		prev = tmp;
+	seg6_pernet_lock(net);
+	act = seg6_action_lookup(net, dst);
+	if (!act) {
+		err = -ENOENT;
+		goto out_unlock;
 	}
+	list_del_rcu(&act->list);
+	seg6_pernet_unlock(net);
 
-	return 0;
+	synchronize_net();
+	kfree(act);
+
+out:
+	return err;
+out_unlock:
+	seg6_pernet_unlock(net);
+	goto out;
 }
 
 void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to,
@@ -179,7 +172,7 @@ static struct genl_family seg6_genl_family = {
  * /!\ We are in atomic context.
  *
  */
-int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data)
+int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *act_data)
 {
 	struct sk_buff *skb2, *msg;
 	struct ipv6_sr_hdr *srhdr;
@@ -189,8 +182,8 @@ int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *bib_data)
 	u32 portid;
 	struct sock *dst_sk;
 
-	portid = *(u32 *)bib_data;
-	dst_sk = *(struct sock **)(bib_data + sizeof(u32));
+	portid = *(u32 *)act_data;
+	dst_sk = *(struct sock **)(act_data + sizeof(u32));
 
 	skb2 = skb_copy(skb, GFP_ATOMIC); /* linearize */
 	srhdr = (struct ipv6_sr_hdr *)skb_transport_header(skb2);
@@ -376,10 +369,10 @@ static int seg6_genl_set_tunsrc(struct sk_buff *skb, struct genl_info *info)
 	t_old = sdata->tun_src;
 	rcu_assign_pointer(sdata->tun_src, t_new);
 
+	seg6_pernet_unlock(net);
+
 	synchronize_net();
 	kfree(t_old);
-
-	seg6_pernet_unlock(net);
 
 	return 0;
 }
@@ -489,8 +482,8 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
 	struct in6_addr *dst;
-	struct seg6_bib_node *bib;
-	int err, op, datalen;
+	struct seg6_action *act;
+	int op, datalen;
 
 	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_BIND_OP])
 		return -EINVAL;
@@ -502,92 +495,93 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 	    !info->attrs[SEG6_ATTR_BIND_DATALEN])
 		return -EINVAL;
 
-	bib = kzalloc(sizeof(*bib), GFP_KERNEL);
-	if (!bib)
+	act = kzalloc(sizeof(*act), GFP_KERNEL);
+	if (!act)
 		return -ENOMEM;
 
-	bib->op = op;
+	act->op = op;
 
 	if (info->attrs[SEG6_ATTR_FLAGS])
-		bib->flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
+		act->flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
 
 	if (op == SEG6_BIND_SERVICE) {
-		bib->data = kzalloc(sizeof(u32) + sizeof(struct sock *),
+		act->data = kzalloc(sizeof(u32) + sizeof(struct sock *),
 				    GFP_KERNEL);
-		if (!bib->data) {
-			kfree(bib);
+		if (!act->data) {
+			kfree(act);
 			return -ENOMEM;
 		}
-		*(u32 *)bib->data = info->snd_portid;
-		bib->datalen = sizeof(u32) + sizeof(struct sock *);
-		*(struct sock **)(bib->data + sizeof(u32)) = info->dst_sk;
+		*(u32 *)act->data = info->snd_portid;
+		act->datalen = sizeof(u32) + sizeof(struct sock *);
+		*(struct sock **)(act->data + sizeof(u32)) = info->dst_sk;
 	} else {
 		datalen = nla_get_s32(info->attrs[SEG6_ATTR_BIND_DATALEN]);
-		bib->data = kzalloc(datalen, GFP_KERNEL);
-		if (!bib->data) {
-			kfree(bib);
+		act->data = kzalloc(datalen, GFP_KERNEL);
+		if (!act->data) {
+			kfree(act);
 			return -ENOMEM;
 		}
-		bib->datalen = datalen;
-		memcpy(bib->data, nla_data(info->attrs[SEG6_ATTR_BIND_DATA]),
+		act->datalen = datalen;
+		memcpy(act->data, nla_data(info->attrs[SEG6_ATTR_BIND_DATA]),
 		       datalen);
 	}
 
-	memcpy(&bib->segment, dst, 16);
+	memcpy(&act->segment, dst, 16);
 
-	err = seg6_bib_insert(net, bib);
+	seg6_action_add(net, act);
 
-	return err;
+	return 0;
 }
 
 static int seg6_genl_delbind(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
 	struct in6_addr *dst;
-	struct seg6_bib_node *bib;
 
 	if (!info->attrs[SEG6_ATTR_DST])
 		return -EINVAL;
 
 	dst = (struct in6_addr *)nla_data(info->attrs[SEG6_ATTR_DST]);
 
-	bib = seg6_bib_lookup(net, dst);
-	if (!bib)
-		return -ENOENT;
-
-	seg6_bib_remove(net, &bib->segment);
-	kfree(bib);
-
-	return 0;
+	return seg6_action_del(net, dst);
 }
 
 static int seg6_genl_flushbind(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
-	struct seg6_bib_node *bib;
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	struct seg6_action *act;
 
-	while ((bib = seg6_pernet(net)->bib_head)) {
-		seg6_pernet(net)->bib_head = bib->next;
-		kfree(bib);
+	seg6_pernet_lock(net);
+	while ((act = list_first_or_null_rcu(&sdata->actions,
+					     struct seg6_action,
+					     list)) != NULL) {
+		list_del_rcu(&act->list);
+		seg6_pernet_unlock(net);
+		synchronize_net();
+		kfree(act);
+		seg6_pernet_lock(net);
 	}
+
+	seg6_pernet_unlock(net);
 
 	return 0;
 }
 
-static int __seg6_bind_fill_info(struct seg6_bib_node *bib,
+static int __seg6_bind_fill_info(struct seg6_action *act,
 				 struct sk_buff *msg)
 {
 	if (nla_put(msg, SEG6_ATTR_DST, sizeof(struct in6_addr),
-		    &bib->segment) ||
-	    nla_put(msg, SEG6_ATTR_BIND_DATA, bib->datalen, bib->data) ||
-	    nla_put_s32(msg, SEG6_ATTR_BIND_DATALEN, bib->datalen) ||
-	    nla_put_u8(msg, SEG6_ATTR_BIND_OP, bib->op))
+		    &act->segment) ||
+	    nla_put(msg, SEG6_ATTR_BIND_DATA, act->datalen, act->data) ||
+	    nla_put_s32(msg, SEG6_ATTR_BIND_DATALEN, act->datalen) ||
+	    nla_put_u8(msg, SEG6_ATTR_BIND_OP, act->op))
 		return -1;
 
 	return 0;
 }
 
-static int __seg6_genl_dumpbind_element(struct seg6_bib_node *bib, u32 portid,
+static int __seg6_genl_dumpbind_element(struct seg6_action *act, u32 portid,
 					u32 seq, u32 flags, struct sk_buff *skb,
 					u8 cmd)
 {
@@ -597,7 +591,7 @@ static int __seg6_genl_dumpbind_element(struct seg6_bib_node *bib, u32 portid,
 	if (!hdr)
 		return -ENOMEM;
 
-	if (__seg6_bind_fill_info(bib, skb) < 0)
+	if (__seg6_bind_fill_info(act, skb) < 0)
 		goto nla_put_failure;
 
 	genlmsg_end(skb, hdr);
@@ -611,14 +605,17 @@ nla_put_failure:
 static int seg6_genl_dumpbind(struct sk_buff *skb, struct netlink_callback *cb)
 {
 	struct net *net = sock_net(skb->sk);
-	struct seg6_bib_node *bib;
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	struct seg6_action *act;
 	int idx = 0, ret;
 
-	for (bib = seg6_pernet(net)->bib_head; bib; bib = bib->next) {
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(act, &sdata->actions, list) {
 		if (idx++ < cb->args[0])
 			continue;
 
-		ret = __seg6_genl_dumpbind_element(bib,
+		ret = __seg6_genl_dumpbind_element(act,
 						   NETLINK_CB(cb->skb).portid,
 						   cb->nlh->nlmsg_seq,
 						   NLM_F_MULTI, skb,
@@ -626,6 +623,8 @@ static int seg6_genl_dumpbind(struct sk_buff *skb, struct netlink_callback *cb)
 		if (ret)
 			break;
 	}
+
+	rcu_read_unlock();
 
 	cb->args[0] = idx;
 	return skb->len;
@@ -736,6 +735,8 @@ static int __net_init seg6_net_init(struct net *net)
 	spin_lock_init(&sdata->lock);
 
 	sdata->tun_src = kzalloc(sizeof(struct in6_addr), GFP_KERNEL);
+
+	INIT_LIST_HEAD(&sdata->actions);
 
 	return 0;
 }

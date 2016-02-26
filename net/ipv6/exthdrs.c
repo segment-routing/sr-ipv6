@@ -306,7 +306,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	int nh, srhlen;
 	struct inet6_dev *idev;
 	struct seg6_hmac_info *hinfo;
-	struct seg6_bib_node *bib_node;
+	struct seg6_action *act;
 	struct in6_addr *neigh_rt = NULL;
 	struct seg6_pernet_data *sdata = seg6_pernet(net);
 
@@ -414,27 +414,27 @@ looped_back:
 	addr = hdr->segments + hdr->segments_left;
 
 	/* check if active segment is a Binding-SID */
-	bib_node = seg6_bib_lookup(net, active_addr);
-	if (bib_node) {
-		switch (bib_node->op) {
+	act = seg6_action_lookup(net, active_addr);
+	if (act) {
+		switch (act->op) {
 		case SEG6_BIND_ROUTE:
-			neigh_rt = (struct in6_addr *)bib_node->data;
+			neigh_rt = (struct in6_addr *)act->data;
 			break;
 		case SEG6_BIND_SERVICE:
 		{
 			int rc;
 
-			rc = seg6_nl_packet_in(net, skb, bib_node->data);
-			if (rc < 0 && rc != -EAGAIN) {
-				seg6_bib_remove(net, active_addr);
-			} else if (!(bib_node->flags & SEG6_BIND_FLAG_ASYM)) {
+			rc = seg6_nl_packet_in(net, skb, act->data);
+
+			if (!(act->flags & SEG6_BIND_FLAG_ASYM)) {
 				kfree_skb(skb);
 				return -1;
 			}
+
 			break;
 		}
 		case SEG6_BIND_OVERRIDE_NEXT:
-			memcpy(addr, bib_node->data, sizeof(struct in6_addr));
+			memcpy(addr, act->data, sizeof(struct in6_addr));
 			break;
 		default:
 			break;
