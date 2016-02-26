@@ -74,17 +74,42 @@ struct seg6_action *seg6_action_lookup(struct net *net,
 
 	return NULL;
 }
+EXPORT_SYMBOL(seg6_action_lookup);
 
-void seg6_action_add(struct net *net, struct seg6_action *act)
+static int seg6_action_add(struct net *net, struct seg6_action *act)
 {
 	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	int err = 0;
+	struct seg6_action *old_act;
 
 	seg6_pernet_lock(net);
+	if ((old_act = seg6_action_lookup(net, &act->segment)) != NULL) {
+		if (act->flags & SEG6_BIND_FLAG_OVERRIDE) {
+			list_del_rcu(&old_act->list);
+		} else {
+			err = -EEXIST;
+			goto out_unlock;
+		}
+	}
+
 	list_add_rcu(&act->list, &sdata->actions);
 	seg6_pernet_unlock(net);
+
+	if (old_act) {
+		synchronize_net();
+		if (old_act->data)
+			kfree(old_act->data);
+		kfree(old_act);
+	}
+
+out:
+	return err;
+out_unlock:
+	seg6_pernet_unlock(net);
+	goto out;
 }
 
-int seg6_action_del(struct net *net, struct in6_addr *dst)
+static int seg6_action_del(struct net *net, struct in6_addr *dst)
 {
 	struct seg6_action *act;
 	int err = 0;
@@ -99,6 +124,8 @@ int seg6_action_del(struct net *net, struct in6_addr *dst)
 	seg6_pernet_unlock(net);
 
 	synchronize_net();
+	if (act->data)
+		kfree(act->data);
 	kfree(act);
 
 out:
@@ -483,7 +510,7 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 	struct net *net = genl_info_net(info);
 	struct in6_addr *dst;
 	struct seg6_action *act;
-	int op, datalen;
+	int op, datalen, err = 0;
 
 	if (!info->attrs[SEG6_ATTR_DST] || !info->attrs[SEG6_ATTR_BIND_OP])
 		return -EINVAL;
@@ -528,9 +555,16 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 
 	memcpy(&act->segment, dst, 16);
 
-	seg6_action_add(net, act);
+	if (unlikely((err = seg6_action_add(net, act)) < 0))
+		goto out_free;
 
-	return 0;
+out:
+	return err;
+out_free:
+	if (act->data)
+		kfree(act->data);
+	kfree(act);
+	goto out;
 }
 
 static int seg6_genl_delbind(struct sk_buff *skb, struct genl_info *info)
@@ -559,6 +593,8 @@ static int seg6_genl_flushbind(struct sk_buff *skb, struct genl_info *info)
 		list_del_rcu(&act->list);
 		seg6_pernet_unlock(net);
 		synchronize_net();
+		if (act->data)
+			kfree(act->data);
 		kfree(act);
 		seg6_pernet_lock(net);
 	}

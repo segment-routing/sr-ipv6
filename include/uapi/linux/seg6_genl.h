@@ -56,6 +56,7 @@ enum {
 #define SEG6_BIND_SERVICE 4 /* send packet to virtual service */
 #define SEG6_BIND_OVERRIDE_NEXT 5 /* override next segment (break HMAC) */
 
-#define SEG6_BIND_FLAG_ASYM     0x01
+#define SEG6_BIND_FLAG_ASYM	0x01
+#define SEG6_BIND_FLAG_OVERRIDE	0x02 /* remove current action if exist */
 
 #endif
