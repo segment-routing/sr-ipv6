@@ -24,7 +24,8 @@
 #include <net/lwtunnel.h>
 #include <net/seg6_hmac.h>
 
-struct seg6_info;
+#define SEG6_VERSION_MAJOR	0
+#define SEG6_VERSION_MINOR	11
 
 extern int __init seg6_init(void);
 

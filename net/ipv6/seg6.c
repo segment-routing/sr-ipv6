@@ -767,7 +767,8 @@ int __init seg6_init(void)
 	if (err)
 		goto out_unregister_genl;
 
-	pr_info("SR-IPv6: Release v0.11\n");
+	pr_info("SR-IPv6: Release v%d.%d\n", SEG6_VERSION_MAJOR,
+		SEG6_VERSION_MINOR);
 out:
 	return err;
 out_unregister_genl:
