@@ -135,6 +135,27 @@ out_unlock:
 	goto out;
 }
 
+static void seg6_action_flush(struct net *net)
+{
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	struct seg6_action *act;
+
+	seg6_pernet_lock(net);
+	while ((act = list_first_or_null_rcu(&sdata->actions,
+					     struct seg6_action,
+					     list)) != NULL) {
+		list_del_rcu(&act->list);
+		seg6_pernet_unlock(net);
+		synchronize_net();
+		if (act->data)
+			kfree(act->data);
+		kfree(act);
+		seg6_pernet_lock(net);
+	}
+
+	seg6_pernet_unlock(net);
+}
+
 void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to,
 		      int reverse)
 {
@@ -583,23 +604,8 @@ static int seg6_genl_delbind(struct sk_buff *skb, struct genl_info *info)
 static int seg6_genl_flushbind(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
-	struct seg6_pernet_data *sdata = seg6_pernet(net);
-	struct seg6_action *act;
 
-	seg6_pernet_lock(net);
-	while ((act = list_first_or_null_rcu(&sdata->actions,
-					     struct seg6_action,
-					     list)) != NULL) {
-		list_del_rcu(&act->list);
-		seg6_pernet_unlock(net);
-		synchronize_net();
-		if (act->data)
-			kfree(act->data);
-		kfree(act);
-		seg6_pernet_lock(net);
-	}
-
-	seg6_pernet_unlock(net);
+	seg6_action_flush(net);
 
 	return 0;
 }
@@ -779,6 +785,16 @@ static int __net_init seg6_net_init(struct net *net)
 
 static void __net_exit seg6_net_exit(struct net *net)
 {
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	int i;
+
+	seg6_action_flush(net);
+
+	for (i = 0; i < SEG6_MAX_HMAC_KEY; i++) {
+		if (sdata->hmac_table[i])
+			kfree(sdata->hmac_table[i]);
+	}
+
 	kfree(seg6_pernet(net));
 }
 
