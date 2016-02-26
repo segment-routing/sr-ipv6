@@ -372,7 +372,7 @@ looped_back:
 	last_addr = hdr->segments;
 
 	if (hdr->segments_left > 0) {
-		if (hdr->segments_left == 1 &&
+		if (hdr->nexthdr != NEXTHDR_IPV6 && hdr->segments_left == 1 &&
 		    sr_get_flags(hdr) & SR6_FLAG_CLEANUP)
 			cleanup = 1;
 	} else {
