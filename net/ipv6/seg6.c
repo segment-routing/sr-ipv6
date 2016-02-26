@@ -48,7 +48,7 @@
 #include <linux/seg6_genl.h>
 
 int seg6_srh_reversal;
-int seg6_hmac_strict_key;
+int seg6_hmac_strict_key = 1;
 int seg6_enabled = 1;
 
 static void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src,
