@@ -67,22 +67,6 @@ struct seg6_pernet_data {
 extern int seg6_srh_reversal;
 extern int seg6_hmac_strict_key;
 
-static inline int __prepare_mod_skb(struct net *net, struct sk_buff *skb)
-{
-	if (skb_cloned(skb)) {
-		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
-			IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
-					IPSTATS_MIB_OUTDISCARDS);
-			kfree_skb(skb);
-			return -1;
-		}
-	}
-	if (skb->ip_summed == CHECKSUM_COMPLETE)
-		skb->ip_summed = CHECKSUM_NONE;
-
-	return 0;
-}
-
 static inline struct seg6_iptunnel_encap *seg6_lwtunnel_encap(struct lwtunnel_state *lwtstate)
 {
 	return (struct seg6_iptunnel_encap *)lwtstate->data;

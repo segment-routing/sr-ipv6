@@ -404,8 +404,17 @@ looped_back:
 		return 1;
 	}
 
-	if (__prepare_mod_skb(net, skb) < 0)
-		return -1;
+	if (skb_cloned(skb)) {
+		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
+			IP6_INC_STATS_BH(net, ip6_dst_idev(skb_dst(skb)),
+					 IPSTATS_MIB_OUTDISCARDS);
+			kfree_skb(skb);
+			return -1;
+		}
+	}
+
+	if (skb->ip_summed == CHECKSUM_COMPLETE)
+		skb->ip_summed = CHECKSUM_NONE;
 
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
