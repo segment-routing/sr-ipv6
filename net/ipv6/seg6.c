@@ -819,6 +819,7 @@ static void __net_exit seg6_net_exit(struct net *net)
 			kfree(sdata->hmac_table[i]);
 	}
 
+	kfree(sdata->tun_src);
 	kfree(seg6_pernet(net));
 }
 
