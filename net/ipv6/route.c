@@ -1179,24 +1179,6 @@ void ip6_route_set_l4flow(struct sk_buff *skb, struct flowi6 *fl6)
 		fl6->fl6_sport = *(__be16 *)skb_transport_header(skb);
 		fl6->fl6_dport = *((__be16 *)skb_transport_header(skb) + 1);
 		break;
-	case NEXTHDR_ROUTING:
-	{
-		struct ipv6_rt_hdr *rthdr;
-		int offset;
-
-		rthdr = (struct ipv6_rt_hdr *)skb_transport_header(skb);
-		offset = (rthdr->hdrlen + 1) << 3;
-
-		if (!pskb_may_pull(skb, skb_transport_offset(skb) + offset))
-			break;
-
-		fl6->flowi6_proto = rthdr->nexthdr;
-
-		skb->transport_header += offset;
-		ip6_route_set_l4flow(skb, fl6);
-		skb->transport_header -= offset;
-		break;
-	}
 	}
 }
 EXPORT_SYMBOL(ip6_route_set_l4flow);
