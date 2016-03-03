@@ -284,6 +284,7 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 	struct in6_addr *active_addr;
 	struct dst_entry *dst;
 	struct flowi6 fl6;
+	int err, hh_len;
 
 	if (!info->attrs[SEG6_ATTR_PACKET_DATA] ||
 	    !info->attrs[SEG6_ATTR_PACKET_LEN])
@@ -318,18 +319,41 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 	fl6.daddr = hdr->daddr;
 	fl6.flowlabel = ((hdr->flow_lbl[0] & 0xF) << 16) |
 			 (hdr->flow_lbl[1] << 8) | hdr->flow_lbl[2];
-	dst = ip6_route_output(net, NULL, &fl6);
-	if (dst->error) {
-		dst_release(dst);
-		kfree_skb(msg);
-		return -EINVAL;
-	}
-	skb_dst_drop(msg);
-	skb_dst_set(msg, dst);
-	msg->dev = dst->dev;
+
 	msg->protocol = htons(ETH_P_IPV6);
 
-	return dst_input(msg);
+	if (srhdr->nexthdr == NEXTHDR_IPV6) {
+		int offset;
+
+		offset = sizeof(struct ipv6hdr) + ((srhdr->hdrlen + 1) << 3);
+		skb_set_inner_protocol(msg, msg->protocol);
+		skb_set_inner_network_header(msg, offset);
+		offset += sizeof(struct ipv6hdr);
+		skb_set_inner_transport_header(msg, offset);
+		skb->encapsulation = 1;
+	}
+
+	skb_set_transport_header(msg, sizeof(struct ipv6hdr));
+
+	skb_dst_drop(msg);
+
+	if ((unlikely(err = ip6_dst_lookup(net, NULL, &dst, &fl6)))) {
+		kfree_skb(msg);
+		return err;
+	}
+
+	skb_dst_set(msg, dst);
+	msg->dev = dst->dev;
+
+	hh_len = LL_RESERVED_SPACE(dst->dev);
+	if (skb_headroom(msg) < hh_len &&
+	    pskb_expand_head(msg, HH_DATA_ALIGN(hh_len - skb_headroom(msg)),
+			     0, GFP_KERNEL)) {
+		kfree_skb(msg);
+		return -ENOMEM;
+	}
+
+	return dst_output(net, NULL, msg);
 }
 
 static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
