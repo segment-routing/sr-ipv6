@@ -25,7 +25,7 @@
 #include <net/seg6_hmac.h>
 
 #define SEG6_VERSION_MAJOR	0
-#define SEG6_VERSION_MINOR	20
+#define SEG6_VERSION_MINOR	21
 
 extern int __init seg6_init(void);
 
