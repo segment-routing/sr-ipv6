@@ -195,6 +195,11 @@ static int seg6_do_srh(struct sk_buff *skb)
 	struct seg6_iptunnel_encap *tinfo = seg6_lwtunnel_encap(dst->lwtstate);
 	int err = 0;
 
+	if (likely(!skb->encapsulation)) {
+		skb_reset_inner_headers(skb);
+		skb->encapsulation = 1;
+	}
+
 	if (tinfo->flags & SEG6_IPTUN_FLAG_ENCAP) {
 		err = seg6_do_srh_encap(skb, tinfo->srh);
 	} else {
@@ -206,6 +211,8 @@ static int seg6_do_srh(struct sk_buff *skb)
 
 	ipv6_hdr(skb)->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
 	skb_set_transport_header(skb, sizeof(struct ipv6hdr));
+
+	skb_set_inner_protocol(skb, skb->protocol);
 
 	return 0;
 }
@@ -230,15 +237,8 @@ int seg6_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 	struct ipv6hdr *hdr;
 	struct flowi6 fl6;
 
-	if (likely(!skb->encapsulation)) {
-		skb_reset_inner_headers(skb);
-		skb->encapsulation = 1;
-	}
-
 	if ((unlikely(err = seg6_do_srh(skb))))
 		return err;
-
-	skb_set_inner_protocol(skb, skb->protocol);
 
 	hdr = ipv6_hdr(skb);
 	fl6.daddr = hdr->daddr;
