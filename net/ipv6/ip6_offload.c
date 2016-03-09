@@ -307,6 +307,12 @@ static const struct net_offload sit_offload = {
 	},
 };
 
+static const struct net_offload ip6ip6_offload = {
+	.callbacks = {
+		.gso_segment	= ipv6_gso_segment,
+	},
+};
+
 static int __init ipv6_offload_init(void)
 {
 
