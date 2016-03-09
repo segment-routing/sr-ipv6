@@ -327,6 +327,8 @@ static int __init ipv6_offload_init(void)
 
 	inet_add_offload(&sit_offload, IPPROTO_IPV6);
 
+	inet6_add_offload(&ip6ip6_offload, IPPROTO_IPV6);
+
 	return 0;
 }
 
