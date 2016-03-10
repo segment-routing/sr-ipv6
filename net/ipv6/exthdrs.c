@@ -389,6 +389,7 @@ looped_back:
 
 			skb_reset_network_header(skb);
 			skb_reset_transport_header(skb);
+			skb->encapsulation = 0;
 
 			__skb_tunnel_rx(skb, skb->dev, net);
 
