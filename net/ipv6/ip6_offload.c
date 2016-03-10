@@ -290,6 +290,12 @@ static int sit_gro_complete(struct sk_buff *skb, int nhoff)
 	return ipv6_gro_complete(skb, nhoff);
 }
 
+static int ip6ip6_gro_complete(struct sk_buff *skb, int nhoff)
+{
+	skb->encapsulation = 1;
+	return ipv6_gro_complete(skb, nhoff);
+}
+
 static struct packet_offload ipv6_packet_offload __read_mostly = {
 	.type = cpu_to_be16(ETH_P_IPV6),
 	.callbacks = {
@@ -311,7 +317,7 @@ static const struct net_offload ip6ip6_offload = {
 	.callbacks = {
 		.gso_segment	= ipv6_gso_segment,
 		.gro_receive	= ipv6_gro_receive,
-		.gro_complete	= ipv6_gro_complete,
+		.gro_complete	= ip6ip6_gro_complete,
 	},
 };
 
