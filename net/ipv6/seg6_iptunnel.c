@@ -204,6 +204,7 @@ static int seg6_do_srh(struct sk_buff *skb)
 		err = seg6_do_srh_encap(skb, tinfo->srh);
 	} else {
 		err = seg6_do_srh_inline(skb, tinfo->srh);
+		skb_reset_inner_headers(skb);
 	}
 
 	if (err)
