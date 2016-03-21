@@ -309,6 +309,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	struct seg6_action *act;
 	struct in6_addr *neigh_rt = NULL;
 	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	int accept_seg6;
 
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
@@ -321,6 +322,15 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	}
 
 	idev = __in6_dev_get(skb->dev);
+
+	accept_seg6 = net->ipv6.devconf_all->seg6_enabled;
+	if (accept_seg6 > idev->cnf.seg6_enabled)
+		accept_seg6 = idev->cnf.seg6_enabled;
+
+	if (!accept_seg6) {
+		kfree_skb(skb);
+		return -1;
+	}
 
 	/* HMAC check */
 	hmac_key_id = sr_get_hmac_key_id(hdr);

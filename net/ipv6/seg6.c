@@ -49,7 +49,6 @@
 
 int seg6_srh_reversal;
 int seg6_hmac_strict_key = 1;
-int seg6_enabled = 1;
 
 static void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src,
 				  int size)
@@ -771,13 +770,6 @@ static struct ctl_table seg6_table[] = {
 	{
 		.procname	= "hmac_strict_key",
 		.data		= &seg6_hmac_strict_key,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec
-	},
-	{
-		.procname	= "enabled",
-		.data		= &seg6_enabled,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec
