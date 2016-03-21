@@ -35,11 +35,12 @@ struct seg6_hmac_info {
 
 extern int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
 			struct in6_addr *saddr, u32 *output);
-extern char seg6_hmac_key[];
 
 extern int seg6_hmac_add_info(struct net *net, int key,
 			      const struct seg6_hmac_info *hinfo);
 extern int seg6_hmac_del_info(struct net *net, int key,
 			      const struct seg6_hmac_info *hinfo);
+extern int seg6_push_hmac(struct net *net, struct in6_addr *saddr,
+			  struct ipv6_sr_hdr *srh);
 
 #endif

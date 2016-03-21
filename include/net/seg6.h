@@ -65,7 +65,6 @@ struct seg6_pernet_data {
 };
 
 extern int seg6_srh_reversal;
-extern int seg6_hmac_strict_key;
 
 static inline struct seg6_iptunnel_encap *seg6_lwtunnel_encap(struct lwtunnel_state *lwtstate)
 {

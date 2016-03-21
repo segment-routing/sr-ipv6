@@ -342,9 +342,6 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	}
 
 	if (idev->cnf.seg6_require_hmac >= 0 && hmac_key_id != 0) {
-		char *key;
-		int keylen;
-
 		if (hdr->hdrlen < hdr->first_segment * 2 + 2 + 4) {
 			kfree_skb(skb);
 			return -1;
@@ -352,19 +349,16 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 
 		hinfo = rcu_dereference(sdata->hmac_table[hmac_key_id]);
 
-		if (!hinfo && seg6_hmac_strict_key) {
-			pr_debug("SR-IPv6: hmac_strict_key is set and no key found for keyid 0x%x\n", hmac_key_id);
+		if (!hinfo) {
+			pr_debug("SR-IPv6: no key found for keyid 0x%x\n", hmac_key_id);
 			kfree_skb(skb);
 			return -1;
 		}
 
-		key = hinfo ? hinfo->secret : seg6_hmac_key;
-		keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
-
 		memset(hmac_output, 0, 20);
 
-		if (sr_hmac_sha1(key, keylen, hdr, &ipv6_hdr(skb)->saddr,
-				 hmac_output)) {
+		if (sr_hmac_sha1(hinfo->secret, hinfo->slen, hdr,
+				 &ipv6_hdr(skb)->saddr, hmac_output)) {
 			kfree_skb(skb);
 			return -1;
 		}
@@ -897,7 +891,6 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 	struct rt0_hdr *phdr, *ihdr;
 	struct ipv6_sr_hdr *sr_phdr, *sr_ihdr;
 	int hops;
-	u8 hmackeyid;
 
 	/* skb->dev might be NULL, hence we fetch net namespace from socket */
 	struct net *net = NULL;
@@ -926,22 +919,9 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 		sr_phdr->segments[0] = **addr_p;
 		*addr_p = &sr_ihdr->segments[hops - 1];
 
-		hmackeyid = sr_get_hmac_key_id(sr_phdr);
-		if (hmackeyid) {
-			char *key;
-			int keylen;
-			struct seg6_hmac_info *hinfo;
-			struct seg6_pernet_data *sdata = seg6_pernet(net);
-
-			rcu_read_lock();
-			hinfo = rcu_dereference(sdata->hmac_table[hmackeyid]);
-			key = hinfo ? hinfo->secret : seg6_hmac_key;
-			keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
-
+		if (sr_phdr->hmackeyid) {
 			memset(SEG6_HMAC(sr_phdr), 0, 32);
-			sr_hmac_sha1(key, keylen, sr_phdr, saddr,
-				     (u32 *)SEG6_HMAC(sr_phdr));
-			rcu_read_unlock();
+			seg6_push_hmac(net, saddr, sr_phdr);
 		}
 
 		sr_phdr->nexthdr = *proto;

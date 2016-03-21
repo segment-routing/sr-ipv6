@@ -48,7 +48,6 @@
 #include <linux/seg6_genl.h>
 
 int seg6_srh_reversal;
-int seg6_hmac_strict_key = 1;
 
 static void copy_segments_reverse(struct in6_addr *dst, struct in6_addr *src,
 				  int size)
@@ -754,22 +753,8 @@ static struct genl_ops seg6_genl_ops[] = {
 
 static struct ctl_table seg6_table[] = {
 	{
-		.procname	= "hmac_key",
-		.data		= seg6_hmac_key,
-		.maxlen		= SEG6_HMAC_MAX_SIZE,
-		.mode		= 0644,
-		.proc_handler	= proc_dostring,
-	},
-	{
 		.procname	= "srh_reversal",
 		.data		= &seg6_srh_reversal,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec
-	},
-	{
-		.procname	= "hmac_strict_key",
-		.data		= &seg6_hmac_strict_key,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec

@@ -56,27 +56,6 @@ int nla_put_srh(struct sk_buff *skb, int attrtype,
 }
 /* -- */
 
-static int __push_hmac(struct net *net, struct in6_addr *saddr,
-		       struct ipv6_sr_hdr *srh)
-{
-	char *key;
-	int keylen;
-	struct seg6_hmac_info *hinfo;
-	int err;
-
-	rcu_read_lock();
-
-	hinfo = rcu_dereference(seg6_pernet(net)->hmac_table[srh->hmackeyid]);
-	key = hinfo ? hinfo->secret : seg6_hmac_key;
-	keylen = hinfo ? hinfo->slen : strlen(seg6_hmac_key);
-
-	err = sr_hmac_sha1(key, keylen, srh, saddr, (u32 *)SEG6_HMAC(srh));
-
-	rcu_read_unlock();
-
-	return err;
-}
-
 static void __set_tun_src(struct net *net, struct net_device *dev,
 			  struct in6_addr *daddr, struct in6_addr *saddr)
 {
@@ -139,7 +118,7 @@ static int seg6_do_srh_encap(struct sk_buff *skb, struct ipv6_sr_hdr *osrh)
 	__set_tun_src(net, skb->dev, &hdr->daddr, &hdr->saddr);
 
 	if (isrh->hmackeyid) {
-		if (unlikely((err = __push_hmac(net, &hdr->saddr, isrh))))
+		if (unlikely((err = seg6_push_hmac(net, &hdr->saddr, isrh))))
 			return err;
 	}
 
@@ -181,7 +160,7 @@ static int seg6_do_srh_inline(struct sk_buff *skb, struct ipv6_sr_hdr *osrh)
 	hdr->daddr = isrh->segments[isrh->first_segment];
 
 	if (isrh->hmackeyid) {
-		if (unlikely((err = __push_hmac(net, &hdr->saddr, isrh))))
+		if (unlikely((err = seg6_push_hmac(net, &hdr->saddr, isrh))))
 			return err;
 	}
 

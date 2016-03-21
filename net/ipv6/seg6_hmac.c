@@ -45,8 +45,6 @@
 #include <net/seg6_hmac.h>
 #include <linux/random.h>
 
-char seg6_hmac_key[SEG6_HMAC_MAX_SIZE] = "secret";
-
 static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
 {
 	u32 workspace[SHA_WORKSPACE_WORDS];
@@ -180,3 +178,28 @@ int seg6_hmac_del_info(struct net *net, int key,
 	return ret;
 }
 EXPORT_SYMBOL(seg6_hmac_del_info);
+
+int seg6_push_hmac(struct net *net, struct in6_addr *saddr,
+		   struct ipv6_sr_hdr *srh)
+{
+	struct seg6_hmac_info *hinfo;
+	int err = -ENOENT;
+
+	rcu_read_lock();
+
+	hinfo = rcu_dereference(seg6_pernet(net)->hmac_table[srh->hmackeyid]);
+
+	if (!hinfo) {
+		rcu_read_unlock();
+		goto out;
+	}
+
+	err = sr_hmac_sha1(hinfo->secret, hinfo->slen, srh, saddr,
+			   (u32 *)SEG6_HMAC(srh));
+
+	rcu_read_unlock();
+
+out:
+	return err;
+}
+EXPORT_SYMBOL(seg6_push_hmac);
