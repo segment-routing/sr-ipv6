@@ -377,6 +377,9 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	if (hmackeyid == 0)
 		return -EINVAL;
 
+	if (slen > SEG6_HMAC_SECRET_LEN)
+		return -EINVAL;
+
 	seg6_pernet_lock(net);
 
 	hinfo = sdata->hmac_table[hmackeyid];
@@ -791,7 +794,7 @@ static void __net_exit seg6_net_exit(struct net *net)
 
 	seg6_action_flush(net);
 
-	for (i = 0; i < SEG6_MAX_HMAC_KEY; i++) {
+	for (i = 0; i < SEG6_HMAC_MAX_KEY; i++) {
 		if (sdata->hmac_table[i])
 			kfree(sdata->hmac_table[i]);
 	}
@@ -820,11 +823,16 @@ int __init seg6_init(void)
 	err = register_pernet_subsys(&ip6_segments_ops);
 	if (err)
 		goto out_unregister_genl;
+	err = seg6_hmac_init();
+	if (err)
+		goto out_unregister_pernet;
 
 	pr_info("SR-IPv6: Release v%d.%d\n", SEG6_VERSION_MAJOR,
 		SEG6_VERSION_MINOR);
 out:
 	return err;
+out_unregister_pernet:
+	unregister_pernet_subsys(&ip6_segments_ops);
 out_unregister_genl:
 	genl_unregister_family(&seg6_genl_family);
 out_unregister_sysctl:
@@ -834,8 +842,9 @@ out_unregister_sysctl:
 	goto out;
 }
 
-void seg6_exit(void)
+void __exit seg6_exit(void)
 {
+	seg6_hmac_exit();
 	unregister_pernet_subsys(&ip6_segments_ops);
 	genl_unregister_family(&seg6_genl_family);
 #ifdef CONFIG_SYSCTL

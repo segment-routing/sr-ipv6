@@ -45,114 +45,124 @@
 #include <net/seg6_hmac.h>
 #include <linux/random.h>
 
-static void sr_sha1(u8 *message, u32 len, u32 *hash_out)
-{
-	u32 workspace[SHA_WORKSPACE_WORDS];
-	u32 padlen;
-	char *pptr;
-	int i;
-	__be64 bits;
+static char * __percpu *hmac_ring;
 
-	memset(workspace, 0, sizeof(workspace));
-
-	if (len % 64 != 0)
-		padlen = 64 - (len % 64);
-	else
-		padlen = 0;
-
+static struct seg6_hmac_algo hmac_algos[] = {
 	{
-		char plaintext[len + padlen];
+		.alg_id = SEG6_HMAC_ALGO_SHA1,
+		.name = "hmac(sha1)",
+	},
+	{
+		.alg_id = SEG6_HMAC_ALGO_SHA256,
+		.name = "hmac(sha256)",
+	},
+};
 
-		memset(plaintext, 0, len + padlen);
-		memcpy(plaintext, message, len);
+static struct seg6_hmac_algo *__hmac_get_algo(u8 alg_id)
+{
+	int i, alg_count;
+	struct seg6_hmac_algo *algo;
 
-		pptr = plaintext + len;
-
-		if (padlen) {
-			bits = cpu_to_be64(len << 3);
-			memcpy(pptr + padlen - sizeof(bits), (const u8 *)&bits,
-			       sizeof(bits));
-			*pptr = 0x80;
-		}
-
-		sha_init(hash_out);
-
-		for (i = 0; i < len + padlen; i += 64)
-			sha_transform(hash_out, plaintext + i, workspace);
-
-		for (i = 0; i < 5; i++)
-			hash_out[i] = cpu_to_be32(hash_out[i]);
-
-		memset(workspace, 0, sizeof(workspace));
+	alg_count = sizeof(hmac_algos)/sizeof(struct seg6_hmac_algo);
+	for (i = 0; i < alg_count; i++) {
+		algo = &hmac_algos[i];
+		if (algo->alg_id == alg_id)
+			return algo;
 	}
+
+	return NULL;
 }
 
-int sr_hmac_sha1(u8 *key, u8 ksize, struct ipv6_sr_hdr *hdr,
-		 struct in6_addr *saddr, u32 *output)
+static int __do_hmac(struct seg6_hmac_info *hinfo, const char *text, u8 psize,
+		     u8 *output, int outlen)
 {
-	unsigned int plen;
-	struct in6_addr *addr;
-	int i;
-	char *pptr;
-	u8 i_pad[64], o_pad[64];
-	u8 realkey[64];
-	u32 hash_out[5];
-	u8 outer_msg[84]; /* 20 (hash) + 64 (o_pad) */
+	struct crypto_shash *tfm;
+	struct shash_desc *shash;
+	struct seg6_hmac_algo *algo;
+	int ret, dgsize;
 
-	if (!ksize)
-		return -EINVAL;
+	algo = __hmac_get_algo(hinfo->alg_id);
+	if (!algo)
+		return -ENOENT;
 
+	tfm = *this_cpu_ptr(algo->tfms);
+
+	dgsize = crypto_shash_digestsize(tfm);
+	if (dgsize > outlen) {
+		pr_debug("sr-ipv6: __do_hmac: digest size too big (%d / %d)\n",
+			 dgsize, outlen);
+		return -ENOMEM;
+	}
+
+	ret = crypto_shash_setkey(tfm, hinfo->secret, hinfo->slen);
+	if (ret < 0) {
+		pr_debug("sr-ipv6: crypto_shash_setkey failed: err %d\n", ret);
+		goto failed;
+	}
+
+	shash = *this_cpu_ptr(algo->shashs);
+	shash->tfm = tfm;
+
+	ret = crypto_shash_digest(shash, text, psize, output);
+	if (ret < 0) {
+		pr_debug("sr-ipv6: crypto_shash_digest failed: err %d\n", ret);
+		goto failed;
+	}
+
+	return dgsize;
+
+failed:
+	return ret;
+}
+
+int seg6_hmac_compute(struct seg6_hmac_info *hinfo, struct ipv6_sr_hdr *hdr,
+		      struct in6_addr *saddr, u8 *output)
+{
+	int plen, i, dgsize, wrsize;
+	char *ring, *off;
+	u8 tmp_out[SEG6_HMAC_MAX_DIGESTSIZE];
+
+	/* a 160-byte buffer for digest output allows to store highest known
+	 * hash function (RadioGatun) with up to 1216 bits
+	 */
+
+	/* saddr(16) + first_seg(1) + cleanup(1) + keyid(1) + seglist(16n) */
 	plen = 16 + 1 + 1 + 1 + (hdr->first_segment + 1) * 16;
 
-	{
-		u8 inner_msg[64 + plen];
+	/* this limit allows for 14 segments */
+	if (plen > 255)
+		return -EMSGSIZE;
 
-		pptr = inner_msg + 64;
-		memset(pptr, 0, plen);
+	local_bh_disable();
+	off = ring = *this_cpu_ptr(hmac_ring);
+	memcpy(off, saddr, 16);
+	off += 16;
+	*off++ = hdr->first_segment;
+	*off++ = !!(sr_get_flags(hdr) & SR6_FLAG_CLEANUP) << 7;
+	*off++ = hdr->hmackeyid;
 
-		memcpy(pptr, saddr->s6_addr, 16);
-		pptr += 16;
-		*pptr++ = hdr->first_segment;
-		*pptr++ = !!(sr_get_flags(hdr) & SR6_FLAG_CLEANUP) << 7;
-		*pptr++ = sr_get_hmac_key_id(hdr);
-
-		for (i = 0; i < hdr->first_segment + 1; i += 1) {
-			addr = hdr->segments + i;
-			memcpy(pptr, addr->s6_addr, 16);
-			pptr += 16;
-		}
-
-		memset(realkey, 0, 64);
-		memset(hash_out, 0, 20);
-
-		if (ksize > 64) {
-			sr_sha1(key, ksize, hash_out);
-			memcpy(realkey, hash_out, 20);
-			memset(hash_out, 0, 20);
-		} else {
-			memcpy(realkey, key, ksize);
-		}
-
-		memset(i_pad, 0x36, 64);
-		memset(o_pad, 0x5c, 64);
-
-		for (i = 0; i < 64; i++) {
-			i_pad[i] ^= realkey[i];
-			o_pad[i] ^= realkey[i];
-		}
-
-		memcpy(inner_msg, i_pad, 64);
-		sr_sha1(inner_msg, 64 + plen, hash_out);
-
-		memcpy(outer_msg, o_pad, 64);
-		memcpy(outer_msg + 64, hash_out, 20);
-
-		sr_sha1(outer_msg, 84, output);
+	for (i = 0; i < hdr->first_segment + 1; i++) {
+		memcpy(off, hdr->segments + i, 16);
+		off += 16;
 	}
+
+	dgsize = __do_hmac(hinfo, ring, plen, tmp_out,
+			   SEG6_HMAC_MAX_DIGESTSIZE);
+	local_bh_enable();
+
+	if (dgsize < 0)
+		return dgsize;
+
+	wrsize = SEG6_HMAC_FIELD_LEN;
+	if (wrsize > dgsize)
+		wrsize = dgsize;
+
+	memset(output, 0, SEG6_HMAC_FIELD_LEN);
+	memcpy(output, tmp_out, wrsize);
 
 	return 0;
 }
-EXPORT_SYMBOL(sr_hmac_sha1);
+EXPORT_SYMBOL(seg6_hmac_compute);
 
 int seg6_hmac_add_info(struct net *net, int key,
 		       const struct seg6_hmac_info *hinfo)
@@ -194,8 +204,7 @@ int seg6_push_hmac(struct net *net, struct in6_addr *saddr,
 		goto out;
 	}
 
-	err = sr_hmac_sha1(hinfo->secret, hinfo->slen, srh, saddr,
-			   (u32 *)SEG6_HMAC(srh));
+	err = seg6_hmac_compute(hinfo, srh, saddr, (u8 *)SEG6_HMAC(srh));
 
 	rcu_read_unlock();
 
@@ -203,3 +212,108 @@ out:
 	return err;
 }
 EXPORT_SYMBOL(seg6_push_hmac);
+
+static int seg6_hmac_init_ring(void)
+{
+	int i;
+
+	hmac_ring = alloc_percpu(char *);
+
+	if (!hmac_ring)
+		return -ENOMEM;
+
+	for_each_possible_cpu(i) {
+		char *ring = kzalloc(256, GFP_KERNEL);
+
+		if (!ring)
+			return -ENOMEM;
+
+		*per_cpu_ptr(hmac_ring, i) = ring;
+	}
+
+	return 0;
+}
+
+static int seg6_hmac_init_algo(void)
+{
+	int i, alg_count, cpu;
+	struct seg6_hmac_algo *algo;
+	struct crypto_shash *tfm;
+	struct shash_desc *shash;
+
+	alg_count = sizeof(hmac_algos)/sizeof(struct seg6_hmac_algo);
+
+	for (i = 0; i < alg_count; i++) {
+		int shsize;
+
+		algo = &hmac_algos[i];
+		algo->tfms = alloc_percpu(struct crypto_shash *);
+		if (!algo->tfms)
+			return -ENOMEM;
+
+		for_each_possible_cpu(cpu) {
+			tfm = crypto_alloc_shash(algo->name, 0, GFP_KERNEL);
+			if (!tfm)
+				return -ENOMEM;
+			*per_cpu_ptr(algo->tfms, cpu) = tfm;
+		}
+
+		shsize = sizeof(*shash) +
+			 crypto_shash_descsize(*this_cpu_ptr(algo->tfms));
+
+		algo->shashs = alloc_percpu(struct shash_desc *);
+		if (!algo->shashs)
+			return -ENOMEM;
+
+		for_each_possible_cpu(cpu) {
+			shash = kzalloc(shsize, GFP_KERNEL);
+			if (!shash)
+				return -ENOMEM;
+			*per_cpu_ptr(algo->shashs, cpu) = shash;
+		}
+	}
+
+	return 0;
+}
+
+int __init seg6_hmac_init(void)
+{
+	int ret;
+
+	ret = seg6_hmac_init_ring();
+	if (ret < 0)
+		goto out;
+
+	ret = seg6_hmac_init_algo();
+
+out:
+	return ret;
+}
+
+void __exit seg6_hmac_exit(void)
+{
+	int i, alg_count, cpu;
+	struct seg6_hmac_algo *algo;
+
+	for_each_possible_cpu(i) {
+		char *ring = *per_cpu_ptr(hmac_ring, i);
+		kfree(ring);
+	}
+	free_percpu(hmac_ring);
+
+	alg_count = sizeof(hmac_algos)/sizeof(struct seg6_hmac_algo);
+	for (i = 0; i < alg_count; i++) {
+		for_each_possible_cpu(cpu) {
+			struct crypto_shash *tfm;
+			struct shash_desc *shash;
+
+			algo = &hmac_algos[i];
+			shash = *per_cpu_ptr(algo->shashs, cpu);
+			kfree(shash);
+			tfm = *per_cpu_ptr(algo->tfms, cpu);
+			crypto_free_shash(tfm);
+		}
+		free_percpu(algo->tfms);
+		free_percpu(algo->shashs);
+	}
+}

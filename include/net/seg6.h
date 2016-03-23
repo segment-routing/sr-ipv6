@@ -59,7 +59,7 @@ struct seg6_action {
 
 struct seg6_pernet_data {
 	spinlock_t lock;
-	struct seg6_hmac_info __rcu *hmac_table[SEG6_MAX_HMAC_KEY];
+	struct seg6_hmac_info __rcu *hmac_table[SEG6_HMAC_MAX_KEY];
 	struct list_head actions;
 	struct in6_addr __rcu *tun_src;
 };

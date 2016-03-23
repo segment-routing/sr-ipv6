@@ -300,7 +300,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	struct ipv6_sr_hdr *hdr;
 	struct net *net = dev_net(skb->dev);
 	int cleanup = 0;
-	u32 hmac_output[5];
+	u8 hmac_output[SEG6_HMAC_FIELD_LEN];
 	u8 *hmac_input;
 	u8 hmac_key_id;
 	int nh, srhlen;
@@ -336,7 +336,7 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	hmac_key_id = sr_get_hmac_key_id(hdr);
 
 	if (idev->cnf.seg6_require_hmac > 0 && hmac_key_id == 0) {
-		pr_debug("SR-IPv6: require_hmac is set and hmac is not present\n");
+		pr_debug("SR-IPv6: require_hmac > 0 and hmac is not present\n");
 		kfree_skb(skb);
 		return -1;
 	}
@@ -350,23 +350,22 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		hinfo = rcu_dereference(sdata->hmac_table[hmac_key_id]);
 
 		if (!hinfo) {
-			pr_debug("SR-IPv6: no key found for keyid 0x%x\n", hmac_key_id);
+			pr_debug("SR-IPv6: no key found for keyid 0x%x\n",
+				 hmac_key_id);
 			kfree_skb(skb);
 			return -1;
 		}
 
-		memset(hmac_output, 0, 20);
-
-		if (sr_hmac_sha1(hinfo->secret, hinfo->slen, hdr,
-				 &ipv6_hdr(skb)->saddr, hmac_output)) {
+		if (seg6_hmac_compute(hinfo, hdr, &ipv6_hdr(skb)->saddr,
+				      hmac_output)) {
 			kfree_skb(skb);
 			return -1;
 		}
 
 		hmac_input = (u8 *)SEG6_HMAC(hdr);
 
-		if (memcmp(hmac_output, hmac_input, 20) != 0) {
-			pr_debug("SR-IPv6: HMAC comparison failed, dropping packet\n");
+		if (memcmp(hmac_output, hmac_input, SEG6_HMAC_FIELD_LEN) != 0) {
+			pr_debug("SR-IPv6: HMAC failed, dropping packet\n");
 			kfree_skb(skb);
 			return -1;
 		}
@@ -384,7 +383,6 @@ looped_back:
 			int offset = (hdr->hdrlen + 1) << 3;
 
 			if (!pskb_pull(skb, offset)) {
-				pr_debug("SR-IPv6: pskb_pull failed for srh decap\n");
 				kfree_skb(skb);
 				return -1;
 			}
