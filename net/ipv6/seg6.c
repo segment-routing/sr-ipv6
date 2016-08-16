@@ -315,6 +315,7 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 
 	memset(&fl6, 0, sizeof(fl6));
 	fl6.daddr = hdr->daddr;
+	fl6.saddr = hdr->saddr;
 	fl6.flowlabel = ((hdr->flow_lbl[0] & 0xF) << 16) |
 			 (hdr->flow_lbl[1] << 8) | hdr->flow_lbl[2];
 

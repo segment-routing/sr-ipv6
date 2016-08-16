@@ -245,6 +245,7 @@ static int seg6_hmac_init_algo(void)
 
 	for (i = 0; i < alg_count; i++) {
 		int shsize;
+		struct crypto_shash **p_tfm;
 
 		algo = &hmac_algos[i];
 		algo->tfms = alloc_percpu(struct crypto_shash *);
@@ -253,13 +254,16 @@ static int seg6_hmac_init_algo(void)
 
 		for_each_possible_cpu(cpu) {
 			tfm = crypto_alloc_shash(algo->name, 0, GFP_KERNEL);
-			if (!tfm)
-				return -ENOMEM;
-			*per_cpu_ptr(algo->tfms, cpu) = tfm;
+			if (IS_ERR(tfm))
+				return PTR_ERR(tfm);
+			p_tfm = per_cpu_ptr(algo->tfms, cpu);
+			*p_tfm = tfm;
 		}
 
-		shsize = sizeof(*shash) +
-			 crypto_shash_descsize(*this_cpu_ptr(algo->tfms));
+		p_tfm = this_cpu_ptr(algo->tfms);
+		tfm = *p_tfm;
+
+		shsize = sizeof(*shash) + crypto_shash_descsize(tfm);
 
 		algo->shashs = alloc_percpu(struct shash_desc *);
 		if (!algo->shashs)
@@ -293,7 +297,7 @@ out:
 void __exit seg6_hmac_exit(void)
 {
 	int i, alg_count, cpu;
-	struct seg6_hmac_algo *algo;
+	struct seg6_hmac_algo *algo = NULL;
 
 	for_each_possible_cpu(i) {
 		char *ring = *per_cpu_ptr(hmac_ring, i);
@@ -303,11 +307,11 @@ void __exit seg6_hmac_exit(void)
 
 	alg_count = sizeof(hmac_algos)/sizeof(struct seg6_hmac_algo);
 	for (i = 0; i < alg_count; i++) {
+		algo = &hmac_algos[i];
 		for_each_possible_cpu(cpu) {
 			struct crypto_shash *tfm;
 			struct shash_desc *shash;
 
-			algo = &hmac_algos[i];
 			shash = *per_cpu_ptr(algo->shashs, cpu);
 			kfree(shash);
 			tfm = *per_cpu_ptr(algo->tfms, cpu);
