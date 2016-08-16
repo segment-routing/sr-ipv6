@@ -50,6 +50,7 @@ struct ipv6_devconf {
 	__s32		mc_forwarding;
 #endif
 	__s32		disable_ipv6;
+	__s32		drop_unicast_in_l2_multicast;
 	__s32		accept_dad;
 	__s32		force_tllao;
 	__s32           ndisc_notify;
@@ -57,11 +58,13 @@ struct ipv6_devconf {
 	__s32		seg6_require_hmac;
 	__s32		seg6_enabled;
 	__s32		accept_ra_mtu;
+	__s32		drop_unsolicited_na;
 	struct ipv6_stable_secret {
 		bool initialized;
 		struct in6_addr secret;
 	} stable_secret;
 	__s32		use_oif_addrs_only;
+	__s32		keep_addr_on_down;
 	void		*sysctl;
 };
 
