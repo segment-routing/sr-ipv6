@@ -239,8 +239,9 @@ int seg6_nl_packet_in(struct net *net, struct sk_buff *skb, void *act_data)
 
 	skb_push(skb2, skb2->data - skb_network_header(skb2));
 
-	msg = netlink_alloc_skb(dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE),
-				portid, GFP_ATOMIC);
+//	msg = netlink_alloc_skb(dst_sk, nlmsg_total_size(NLMSG_DEFAULT_SIZE),
+//				portid, GFP_ATOMIC);
+	msg = genlmsg_new(NLMSG_DEFAULT_SIZE, GFP_ATOMIC);
 	if (!msg)
 		goto err;
 
@@ -458,9 +459,10 @@ static int seg6_genl_get_tunsrc(struct sk_buff *skb, struct genl_info *info)
 	void *hdr;
 	struct in6_addr *tun_src;
 
-	msg = netlink_alloc_skb(info->dst_sk,
-				nlmsg_total_size(NLMSG_DEFAULT_SIZE),
-				info->snd_portid, GFP_KERNEL);
+//	msg = netlink_alloc_skb(info->dst_sk,
+//				nlmsg_total_size(NLMSG_DEFAULT_SIZE),
+//				info->snd_portid, GFP_KERNEL);
+	msg = genlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
 	if (!msg)
 		return -ENOMEM;
 
@@ -579,6 +581,8 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 		act->flags = nla_get_u32(info->attrs[SEG6_ATTR_FLAGS]);
 
 	if (op == SEG6_BIND_SERVICE) {
+		return -ENOSYS;
+#if 0
 		act->data = kzalloc(sizeof(u32) + sizeof(struct sock *),
 				    GFP_KERNEL);
 		if (!act->data) {
@@ -588,6 +592,7 @@ static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 		*(u32 *)act->data = info->snd_portid;
 		act->datalen = sizeof(u32) + sizeof(struct sock *);
 		*(struct sock **)(act->data + sizeof(u32)) = info->dst_sk;
+#endif
 	} else {
 		datalen = nla_get_s32(info->attrs[SEG6_ATTR_BIND_DATALEN]);
 		act->data = kzalloc(datalen, GFP_KERNEL);
