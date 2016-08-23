@@ -175,13 +175,40 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to,
 	memset(hdr_to->segments, 0x42, sizeof(struct in6_addr));
 }
 
+struct sr6_tlv_hmac *seg6_get_tlv_hmac(struct ipv6_sr_hdr *srh)
+{
+	struct sr6_tlv_hmac *tlv;
+
+	if (srh->hdrlen < (srh->first_segment + 1)*2 + 5)
+		return NULL;
+
+	if (!(sr_get_flags(srh) & SR6_FLAG_HMAC))
+		return NULL;
+
+	tlv = (struct sr6_tlv_hmac *)
+	      ((char *)srh + ((srh->hdrlen + 1) << 3) - 40);
+
+	if (tlv->type != SR6_TLV_HMAC || tlv->len != 38)
+		return NULL;
+
+	return tlv;
+}
+
+void *seg6_get_tlv(struct ipv6_sr_hdr *srh, int type)
+{
+	if (type == SR6_TLV_HMAC)
+		return seg6_get_tlv_hmac(srh);
+
+	return NULL;
+}
+
 static struct nla_policy seg6_genl_policy[SEG6_ATTR_MAX + 1] = {
 	[SEG6_ATTR_DST]				= { .type = NLA_BINARY,
 		.len = sizeof(struct in6_addr) },
 	[SEG6_ATTR_DSTLEN]			= { .type = NLA_S32, },
 	[SEG6_ATTR_SEGLISTID]		= { .type = NLA_U16, },
 	[SEG6_ATTR_FLAGS]			= { .type = NLA_U32, },
-	[SEG6_ATTR_HMACKEYID]		= { .type = NLA_U8, },
+	[SEG6_ATTR_HMACKEYID]		= { .type = NLA_U32, },
 	[SEG6_ATTR_SEGMENTS]		= { .type = NLA_BINARY, },
 	[SEG6_ATTR_SEGLEN]			= { .type = NLA_S32, },
 	[SEG6_ATTR_SEGINFO]			= { .type = NLA_NESTED, },
@@ -360,19 +387,18 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
 	char *secret;
-	u8 hmackeyid;
+	u32 hmackeyid;
 	u8 algid;
 	u8 slen;
 	struct seg6_hmac_info *hinfo;
 	int err = 0;
-	struct seg6_pernet_data *sdata = seg6_pernet(net);
 
 	if (!info->attrs[SEG6_ATTR_HMACKEYID] ||
 	    !info->attrs[SEG6_ATTR_SECRETLEN] ||
 	    !info->attrs[SEG6_ATTR_ALGID])
 		return -EINVAL;
 
-	hmackeyid = nla_get_u8(info->attrs[SEG6_ATTR_HMACKEYID]);
+	hmackeyid = nla_get_u32(info->attrs[SEG6_ATTR_HMACKEYID]);
 	slen = nla_get_u8(info->attrs[SEG6_ATTR_SECRETLEN]);
 	algid = nla_get_u8(info->attrs[SEG6_ATTR_ALGID]);
 
@@ -383,11 +409,10 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 		return -EINVAL;
 
 	seg6_pernet_lock(net);
-
-	hinfo = sdata->hmac_table[hmackeyid];
+	hinfo = seg6_hmac_info_lookup(net, hmackeyid);
 
 	if (!slen) {
-		if (!hinfo || seg6_hmac_del_info(net, hmackeyid, hinfo)) {
+		if (!hinfo || seg6_hmac_info_del(net, hmackeyid, hinfo)) {
 			err = -ENOENT;
 		} else {
 			kfree(hinfo);
@@ -401,7 +426,7 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	if (hinfo) {
-		if (seg6_hmac_del_info(net, hmackeyid, hinfo)) {
+		if (seg6_hmac_info_del(net, hmackeyid, hinfo)) {
 			err = -ENOENT;
 			goto out_unlock;
 		}
@@ -419,8 +444,9 @@ static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 	memcpy(hinfo->secret, secret, slen);
 	hinfo->slen = slen;
 	hinfo->alg_id = algid;
+	hinfo->hmackeyid = hmackeyid;
 
-	seg6_hmac_add_info(net, hmackeyid, hinfo);
+	seg6_hmac_info_add(net, hmackeyid, hinfo);
 
 out_unlock:
 	seg6_pernet_unlock(net);
@@ -492,10 +518,10 @@ free_msg:
 	return -ENOMEM;
 }
 
-static int __seg6_hmac_fill_info(int keyid, struct seg6_hmac_info *hinfo,
+static int __seg6_hmac_fill_info(struct seg6_hmac_info *hinfo,
 				 struct sk_buff *msg)
 {
-	if (nla_put_u8(msg, SEG6_ATTR_HMACKEYID, keyid) ||
+	if (nla_put_u32(msg, SEG6_ATTR_HMACKEYID, hinfo->hmackeyid) ||
 	    nla_put_u8(msg, SEG6_ATTR_SECRETLEN, hinfo->slen) ||
 	    nla_put(msg, SEG6_ATTR_SECRET, hinfo->slen, hinfo->secret) ||
 	    nla_put_u8(msg, SEG6_ATTR_ALGID, hinfo->alg_id))
@@ -504,7 +530,7 @@ static int __seg6_hmac_fill_info(int keyid, struct seg6_hmac_info *hinfo,
 	return 0;
 }
 
-static int __seg6_genl_dumphmac_element(int keyid, struct seg6_hmac_info *hinfo,
+static int __seg6_genl_dumphmac_element(struct seg6_hmac_info *hinfo,
 					u32 portid, u32 seq, u32 flags,
 					struct sk_buff *skb, u8 cmd)
 {
@@ -514,7 +540,7 @@ static int __seg6_genl_dumphmac_element(int keyid, struct seg6_hmac_info *hinfo,
 	if (!hdr)
 		return -ENOMEM;
 
-	if (__seg6_hmac_fill_info(keyid, hinfo, skb) < 0)
+	if (__seg6_hmac_fill_info(hinfo, skb) < 0)
 		goto nla_put_failure;
 
 	genlmsg_end(skb, hdr);
@@ -528,19 +554,16 @@ nla_put_failure:
 static int seg6_genl_dumphmac(struct sk_buff *skb, struct netlink_callback *cb)
 {
 	struct net *net = sock_net(skb->sk);
+	struct seg6_pernet_data *sdata = seg6_pernet(net);
 	struct seg6_hmac_info *hinfo;
-	int i, ret;
+	int idx = 0, ret;
 
 	rcu_read_lock();
-	for (i = 0; i < 255; i++) {
-		if (i < cb->args[0])
+	list_for_each_entry_rcu(hinfo, &sdata->hmac_infos, list) {
+		if (idx++ < cb->args[0])
 			continue;
 
-		hinfo = rcu_dereference(seg6_pernet(net)->hmac_table[i]);
-		if (!hinfo)
-			continue;
-
-		ret = __seg6_genl_dumphmac_element(i, hinfo,
+		ret = __seg6_genl_dumphmac_element(hinfo,
 						   NETLINK_CB(cb->skb).portid,
 						   cb->nlh->nlmsg_seq,
 						   NLM_F_MULTI,
@@ -550,7 +573,7 @@ static int seg6_genl_dumphmac(struct sk_buff *skb, struct netlink_callback *cb)
 	}
 	rcu_read_unlock();
 
-	cb->args[0] = i;
+	cb->args[0] = idx;
 	return skb->len;
 }
 
@@ -790,20 +813,18 @@ static int __net_init seg6_net_init(struct net *net)
 
 	INIT_LIST_HEAD(&sdata->actions);
 
+	seg6_hmac_net_init(net);
+
 	return 0;
 }
 
 static void __net_exit seg6_net_exit(struct net *net)
 {
 	struct seg6_pernet_data *sdata = seg6_pernet(net);
-	int i;
 
 	seg6_action_flush(net);
 
-	for (i = 0; i < SEG6_HMAC_MAX_KEY; i++) {
-		if (sdata->hmac_table[i])
-			kfree(sdata->hmac_table[i]);
-	}
+	seg6_hmac_net_exit(net);
 
 	kfree(sdata->tun_src);
 	kfree(seg6_pernet(net));

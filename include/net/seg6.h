@@ -37,8 +37,11 @@ extern struct seg6_action *seg6_action_lookup(struct net *net,
 
 extern int seg6_nl_packet_in(struct net *net, struct sk_buff *skb,
 			void *act_data);
+extern struct sr6_tlv_hmac *seg6_get_tlv_hmac(struct ipv6_sr_hdr *srh);
+extern void *seg6_get_tlv(struct ipv6_sr_hdr *srh, int type);
 
 #define SEG6_SRH_SEGSIZE(srh) ((srh)->first_segment + 1)
+#define SEG6_TLVS(s) ((s)->segments+SEG6_SRH_SEGSIZE(s))
 
 struct seg6_action {
 	struct list_head list;
@@ -59,7 +62,7 @@ struct seg6_action {
 
 struct seg6_pernet_data {
 	spinlock_t lock;
-	struct seg6_hmac_info __rcu *hmac_table[SEG6_HMAC_MAX_KEY];
+	struct list_head hmac_infos;
 	struct list_head actions;
 	struct in6_addr __rcu *tun_src;
 };

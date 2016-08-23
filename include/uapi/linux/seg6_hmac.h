@@ -2,8 +2,15 @@
 #define _UAPI_LINUX_SEG6_HMAC_H
 
 #define SEG6_HMAC_SECRET_LEN	64
-#define SEG6_HMAC_MAX_KEY	256
 #define SEG6_HMAC_FIELD_LEN	32
+
+struct sr6_tlv_hmac {
+        __u8 type;
+        __u8 len;
+        __u16 reserved;
+        __be32 hmackeyid;
+        __u8 hmac[SEG6_HMAC_FIELD_LEN];
+} __attribute__((packed));
 
 enum {
 	SEG6_HMAC_ALGO_SHA1 = 1,

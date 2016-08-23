@@ -23,71 +23,24 @@ struct ipv6_sr_hdr {
 	__u8	type;
 	__u8	segments_left;
 	__u8	first_segment;
-
-	__u8	flag_1;
-	__u8	flag_2;
-
-	__u8	hmackeyid;
+	__be16	flags;
+	__u8	reserved;
 
 	struct in6_addr segments[0];
-};
+} __attribute__((packed));
 
-#define SR6_FLAG_CLEANUP	0x08
-#define SR6_FLAG_PROTECTED	0x04
-#define SR6_FLAGMASK		0x0f
+#define SR6_FLAG_CLEANUP	(1 << 15)
+#define SR6_FLAG_PROTECTED	(1 << 14)
+#define SR6_FLAG_OAM		(1 << 13)
+#define SR6_FLAG_ALERT		(1 << 12)
+#define SR6_FLAG_HMAC		(1 << 11)
 
-#define sr_set_hmac_key_id(hdr, val) ((hdr)->hmackeyid = val)
-#define sr_get_hmac_key_id(hdr) ((hdr)->hmackeyid)
+#define SR6_TLV_INGRESS		1
+#define SR6_TLV_EGRESS		2
+#define SR6_TLV_OPAQUE		3
+#define SR6_TLV_PADDING		4
+#define SR6_TLV_HMAC		5
 
-static inline void sr_set_flags(struct ipv6_sr_hdr *hdr, int val)
-{
-	hdr->flag_1 = ((val & 0xF) << 4) | (hdr->flag_1 & 0xF);
-}
-
-static inline int sr_get_flags(struct ipv6_sr_hdr *hdr)
-{
-	return (hdr->flag_1 >> 4) & 0xF;
-}
-
-static inline void sr_set_flag_p1(struct ipv6_sr_hdr *hdr, int val)
-{
-	hdr->flag_1 = ((val & 0x7) << 1) | (hdr->flag_1 & 0xF1);
-}
-
-static inline int sr_get_flag_p1(struct ipv6_sr_hdr *hdr)
-{
-	return (hdr->flag_1 >> 1) & 0x7;
-}
-
-static inline void sr_set_flag_p2(struct ipv6_sr_hdr *hdr, int val)
-{
-	hdr->flag_1 = ((val & 0x7) >> 2) | (hdr->flag_1 & 0xFE);
-	hdr->flag_2 = ((val & 0x3) << 6) | (hdr->flag_2 & 0x3F);
-}
-
-static inline int sr_get_flag_p2(struct ipv6_sr_hdr *hdr)
-{
-	return ((hdr->flag_1 & 0x1) << 2) | ((hdr->flag_2 >> 6) & 0x3);
-}
-
-static inline void sr_set_flag_p3(struct ipv6_sr_hdr *hdr, int val)
-{
-	hdr->flag_2 = ((val & 0x7) << 3) | (hdr->flag_2 & 0xC7);
-}
-
-static inline int sr_get_flag_p3(struct ipv6_sr_hdr *hdr)
-{
-	return (hdr->flag_2 >> 3) & 0x7;
-}
-
-static inline void sr_set_flag_p4(struct ipv6_sr_hdr *hdr, int val)
-{
-	hdr->flag_2 = (val & 0x7) | (hdr->flag_2 & 0xF8);
-}
-
-static inline int sr_get_flag_p4(struct ipv6_sr_hdr *hdr)
-{
-	return hdr->flag_2 & 0x7;
-}
+#define sr_get_flags(srh) (be16_to_cpu((srh)->flags))
 
 #endif

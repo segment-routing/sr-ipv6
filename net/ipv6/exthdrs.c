@@ -300,26 +300,13 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 	struct ipv6_sr_hdr *hdr;
 	struct net *net = dev_net(skb->dev);
 	int cleanup = 0;
-	u8 hmac_output[SEG6_HMAC_FIELD_LEN];
-	u8 *hmac_input;
-	u8 hmac_key_id;
 	int nh, srhlen;
 	struct inet6_dev *idev;
-	struct seg6_hmac_info *hinfo;
 	struct seg6_action *act;
 	struct in6_addr *neigh_rt = NULL;
-	struct seg6_pernet_data *sdata = seg6_pernet(net);
 	int accept_seg6;
 
 	hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
-
-	if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr) ||
-	    skb->pkt_type != PACKET_HOST) {
-		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
-				 IPSTATS_MIB_INADDRERRORS);
-		kfree_skb(skb);
-		return -1;
-	}
 
 	idev = __in6_dev_get(skb->dev);
 
@@ -332,43 +319,9 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		return -1;
 	}
 
-	/* HMAC check */
-	hmac_key_id = sr_get_hmac_key_id(hdr);
-
-	if (idev->cnf.seg6_require_hmac > 0 && hmac_key_id == 0) {
-		pr_debug("SR-IPv6: require_hmac > 0 and hmac is not present\n");
+	if (!seg6_hmac_validate_skb(skb)) {
 		kfree_skb(skb);
 		return -1;
-	}
-
-	if (idev->cnf.seg6_require_hmac >= 0 && hmac_key_id != 0) {
-		if (hdr->hdrlen < hdr->first_segment * 2 + 2 + 4) {
-			kfree_skb(skb);
-			return -1;
-		}
-
-		hinfo = rcu_dereference(sdata->hmac_table[hmac_key_id]);
-
-		if (!hinfo) {
-			pr_debug("SR-IPv6: no key found for keyid 0x%x\n",
-				 hmac_key_id);
-			kfree_skb(skb);
-			return -1;
-		}
-
-		if (seg6_hmac_compute(hinfo, hdr, &ipv6_hdr(skb)->saddr,
-				      hmac_output)) {
-			kfree_skb(skb);
-			return -1;
-		}
-
-		hmac_input = (u8 *)SEG6_HMAC(hdr);
-
-		if (memcmp(hmac_output, hmac_input, SEG6_HMAC_FIELD_LEN) != 0) {
-			pr_debug("SR-IPv6: HMAC failed, dropping packet\n");
-			kfree_skb(skb);
-			return -1;
-		}
 	}
 
 looped_back:
@@ -542,10 +495,6 @@ static int ipv6_rthdr_rcv(struct sk_buff *skb)
 
 	hdr = (struct ipv6_rt_hdr *)skb_transport_header(skb);
 
-	/* segment routing */
-	if (hdr->type == IPV6_SRCRT_TYPE_4)
-		return ipv6_srh_rcv(skb);
-
 	if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr) ||
 	    skb->pkt_type != PACKET_HOST) {
 		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
@@ -553,6 +502,10 @@ static int ipv6_rthdr_rcv(struct sk_buff *skb)
 		kfree_skb(skb);
 		return -1;
 	}
+
+	/* segment routing */
+	if (hdr->type == IPV6_SRCRT_TYPE_4)
+		return ipv6_srh_rcv(skb);
 
 looped_back:
 	if (hdr->segments_left == 0) {
@@ -917,10 +870,8 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 		sr_phdr->segments[0] = **addr_p;
 		*addr_p = &sr_ihdr->segments[hops - 1];
 
-		if (sr_phdr->hmackeyid) {
-			memset(SEG6_HMAC(sr_phdr), 0, 32);
+		if (sr_get_flags(sr_phdr) & SR6_FLAG_HMAC)
 			seg6_push_hmac(net, saddr, sr_phdr);
-		}
 
 		sr_phdr->nexthdr = *proto;
 		*proto = NEXTHDR_ROUTING;

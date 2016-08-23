@@ -117,7 +117,7 @@ static int seg6_do_srh_encap(struct sk_buff *skb, struct ipv6_sr_hdr *osrh)
 	hdr->daddr = isrh->segments[isrh->first_segment];
 	__set_tun_src(net, skb->dev, &hdr->daddr, &hdr->saddr);
 
-	if (isrh->hmackeyid) {
+	if (sr_get_flags(isrh) & SR6_FLAG_HMAC) {
 		if (unlikely((err = seg6_push_hmac(net, &hdr->saddr, isrh))))
 			return err;
 	}
@@ -159,7 +159,7 @@ static int seg6_do_srh_inline(struct sk_buff *skb, struct ipv6_sr_hdr *osrh)
 	isrh->segments[0] = hdr->daddr;
 	hdr->daddr = isrh->segments[isrh->first_segment];
 
-	if (isrh->hmackeyid) {
+	if (sr_get_flags(isrh) & SR6_FLAG_HMAC) {
 		if (unlikely((err = seg6_push_hmac(net, &hdr->saddr, isrh))))
 			return err;
 	}

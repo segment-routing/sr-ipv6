@@ -23,11 +23,13 @@
 #include <net/seg6.h>
 #include <linux/seg6_hmac.h>
 
-#define SEG6_HMAC(s) ((s)->segments+SEG6_SRH_SEGSIZE(s))
-
 #define SEG6_HMAC_MAX_DIGESTSIZE	160
+#define SEG6_HMAC_RING_SIZE		256
 
 struct seg6_hmac_info {
+	struct list_head list;
+
+	u32 hmackeyid;
 	char secret[SEG6_HMAC_SECRET_LEN];
 	u8 slen;
 	u8 alg_id;
@@ -43,13 +45,17 @@ struct seg6_hmac_algo {
 extern int seg6_hmac_compute(struct seg6_hmac_info *hinfo,
 			     struct ipv6_sr_hdr *hdr, struct in6_addr *saddr,
 			     u8 *output);
-extern int seg6_hmac_add_info(struct net *net, int key,
-			      const struct seg6_hmac_info *hinfo);
-extern int seg6_hmac_del_info(struct net *net, int key,
-			      const struct seg6_hmac_info *hinfo);
+extern struct seg6_hmac_info *seg6_hmac_info_lookup(struct net *net, u32 key);
+extern int seg6_hmac_info_add(struct net *net, u32 key,
+			      struct seg6_hmac_info *hinfo);
+extern int seg6_hmac_info_del(struct net *net, u32 key,
+			      struct seg6_hmac_info *hinfo);
 extern int seg6_push_hmac(struct net *net, struct in6_addr *saddr,
 			  struct ipv6_sr_hdr *srh);
+extern bool seg6_hmac_validate_skb(struct sk_buff *skb);
 extern int seg6_hmac_init(void);
 extern void seg6_hmac_exit(void);
+extern int seg6_hmac_net_init(struct net *net);
+extern void seg6_hmac_net_exit(struct net *net);
 
 #endif
