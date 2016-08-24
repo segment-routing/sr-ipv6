@@ -39,10 +39,11 @@
 
 #include <linux/cryptohash.h>
 #include <crypto/hash.h>
-#include <crypto/sha.h>
 #include <net/seg6.h>
 #include <net/genetlink.h>
+#ifdef CONFIG_IPV6_SEG6_HMAC
 #include <net/seg6_hmac.h>
+#endif
 #include <linux/seg6.h>
 #include <linux/random.h>
 #include <linux/seg6_genl.h>
@@ -175,6 +176,7 @@ void seg6_srh_to_tmpl(struct ipv6_sr_hdr *hdr_from, struct ipv6_sr_hdr *hdr_to,
 	memset(hdr_to->segments, 0x42, sizeof(struct in6_addr));
 }
 
+#ifdef CONFIG_IPV6_SEG6_HMAC
 struct sr6_tlv_hmac *seg6_get_tlv_hmac(struct ipv6_sr_hdr *srh)
 {
 	struct sr6_tlv_hmac *tlv;
@@ -193,11 +195,14 @@ struct sr6_tlv_hmac *seg6_get_tlv_hmac(struct ipv6_sr_hdr *srh)
 
 	return tlv;
 }
+#endif
 
 void *seg6_get_tlv(struct ipv6_sr_hdr *srh, int type)
 {
+#ifdef CONFIG_IPV6_SEG6_HMAC
 	if (type == SR6_TLV_HMAC)
 		return seg6_get_tlv_hmac(srh);
+#endif
 
 	return NULL;
 }
@@ -383,6 +388,7 @@ static int seg6_genl_packet_out(struct sk_buff *skb, struct genl_info *info)
 	return dst_output(net, NULL, msg);
 }
 
+#ifdef CONFIG_IPV6_SEG6_HMAC
 static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
@@ -452,6 +458,12 @@ out_unlock:
 	seg6_pernet_unlock(net);
 	return err;
 }
+#else
+static int seg6_genl_sethmac(struct sk_buff *skb, struct genl_info *info)
+{
+	return -ENOSYS;
+}
+#endif
 
 static int seg6_genl_set_tunsrc(struct sk_buff *skb, struct genl_info *info)
 {
@@ -518,6 +530,7 @@ free_msg:
 	return -ENOMEM;
 }
 
+#ifdef CONFIG_IPV6_SEG6_HMAC
 static int __seg6_hmac_fill_info(struct seg6_hmac_info *hinfo,
 				 struct sk_buff *msg)
 {
@@ -576,6 +589,12 @@ static int seg6_genl_dumphmac(struct sk_buff *skb, struct netlink_callback *cb)
 	cb->args[0] = idx;
 	return skb->len;
 }
+#else
+static int seg6_genl_dumphmac(struct sk_buff *skb, struct netlink_callback *cb)
+{
+	return -ENOSYS;
+}
+#endif
 
 static int seg6_genl_addbind(struct sk_buff *skb, struct genl_info *info)
 {
@@ -813,7 +832,9 @@ static int __net_init seg6_net_init(struct net *net)
 
 	INIT_LIST_HEAD(&sdata->actions);
 
+#ifdef CONFIG_IPV6_SEG6_HMAC
 	seg6_hmac_net_init(net);
+#endif
 
 	return 0;
 }
@@ -824,7 +845,9 @@ static void __net_exit seg6_net_exit(struct net *net)
 
 	seg6_action_flush(net);
 
+#ifdef CONFIG_IPV6_SEG6_HMAC
 	seg6_hmac_net_exit(net);
+#endif
 
 	kfree(sdata->tun_src);
 	kfree(seg6_pernet(net));
@@ -850,16 +873,20 @@ int __init seg6_init(void)
 	err = register_pernet_subsys(&ip6_segments_ops);
 	if (err)
 		goto out_unregister_genl;
+#ifdef CONFIG_IPV6_SEG6_HMAC
 	err = seg6_hmac_init();
 	if (err)
 		goto out_unregister_pernet;
+#endif
 
 	pr_info("SR-IPv6: Release v%d.%d\n", SEG6_VERSION_MAJOR,
 		SEG6_VERSION_MINOR);
 out:
 	return err;
+#ifdef CONFIG_IPV6_SEG6_HMAC
 out_unregister_pernet:
 	unregister_pernet_subsys(&ip6_segments_ops);
+#endif
 out_unregister_genl:
 	genl_unregister_family(&seg6_genl_family);
 out_unregister_sysctl:
@@ -871,7 +898,9 @@ out_unregister_sysctl:
 
 void __exit seg6_exit(void)
 {
+#ifdef CONFIG_IPV6_SEG6_HMAC
 	seg6_hmac_exit();
+#endif
 	unregister_pernet_subsys(&ip6_segments_ops);
 	genl_unregister_family(&seg6_genl_family);
 #ifdef CONFIG_SYSCTL

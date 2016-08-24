@@ -23,7 +23,7 @@ ipv6-$(CONFIG_IPV6_MULTIPLE_TABLES) += fib6_rules.o
 ipv6-$(CONFIG_PROC_FS) += proc.o
 ipv6-$(CONFIG_SYN_COOKIES) += syncookies.o
 
-ipv6-objs += $(ipv6-y) seg6.o seg6_hmac.o
+ipv6-objs += $(ipv6-y) seg6.o
 
 obj-$(CONFIG_INET6_AH) += ah6.o
 obj-$(CONFIG_INET6_ESP) += esp6.o
@@ -44,6 +44,7 @@ obj-$(CONFIG_IPV6_TUNNEL) += ip6_tunnel.o
 obj-$(CONFIG_IPV6_GRE) += ip6_gre.o
 obj-$(CONFIG_IPV6_FOU) += fou6.o
 obj-$(CONFIG_IPV6_SEG6_IPTUNNEL) += seg6_iptunnel.o
+obj-$(CONFIG_IPV6_SEG6_HMAC) += seg6_hmac.o
 
 obj-y += addrconf_core.o exthdrs_core.o ip6_checksum.o ip6_icmp.o
 obj-$(CONFIG_INET) += output_core.o protocol.o $(ipv6-offload)

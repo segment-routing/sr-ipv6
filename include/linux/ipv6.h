@@ -55,7 +55,9 @@ struct ipv6_devconf {
 	__s32		force_tllao;
 	__s32           ndisc_notify;
 	__s32		suppress_frag_ndisc;
+#ifdef CONFIG_IPV6_SEG6_HMAC
 	__s32		seg6_require_hmac;
+#endif
 	__s32		seg6_enabled;
 	__s32		accept_ra_mtu;
 	__s32		drop_unsolicited_na;

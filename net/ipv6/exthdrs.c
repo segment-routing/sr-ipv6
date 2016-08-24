@@ -47,10 +47,10 @@
 #include <net/xfrm.h>
 #endif
 
-#include <crypto/hash.h>
-#include <crypto/sha.h>
 #include <net/seg6.h>
+#ifdef CONFIG_IPV6_SEG6_HMAC
 #include <net/seg6_hmac.h>
+#endif
 #include <linux/seg6.h>
 #include <linux/seg6_genl.h>
 
@@ -319,10 +319,12 @@ static int ipv6_srh_rcv(struct sk_buff *skb)
 		return -1;
 	}
 
+#ifdef CONFIG_IPV6_SEG6_HMAC
 	if (!seg6_hmac_validate_skb(skb)) {
 		kfree_skb(skb);
 		return -1;
 	}
+#endif
 
 looped_back:
 	last_addr = hdr->segments;
@@ -854,7 +856,7 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 	if (!net)
 		BUG();
 
-	if (opt->type == 4) {
+	if (opt->type == IPV6_SRCRT_TYPE_4) {
 		int plen;
 
 		sr_ihdr = (struct ipv6_sr_hdr *)opt;
@@ -870,8 +872,10 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 		sr_phdr->segments[0] = **addr_p;
 		*addr_p = &sr_ihdr->segments[hops - 1];
 
+#ifdef CONFIG_IPV6_SEG6_HMAC
 		if (sr_get_flags(sr_phdr) & SR6_FLAG_HMAC)
 			seg6_push_hmac(net, saddr, sr_phdr);
+#endif
 
 		sr_phdr->nexthdr = *proto;
 		*proto = NEXTHDR_ROUTING;
